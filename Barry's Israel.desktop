@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Barry's Israel — Founders
+Comment=Open the Barry's Israel crowdfunding mockup
+Exec=bash /home/user/claude100/launch.sh
+Icon=applications-internet
+Terminal=false
+Categories=Application;
+StartupNotify=false

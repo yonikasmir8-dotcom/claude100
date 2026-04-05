@@ -1,0 +1,1518 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Barry's Israel — Become a Founder</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700;900&display=swap" rel="stylesheet" />
+  <style>
+/* ============================================================
+   Barry's Israel — Founders Campaign
+   Design: Dark / Red / Industrial — Barry's brand aesthetic
+   ============================================================ */
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --red:       #E8002D;
+  --red-dark:  #B5001F;
+  --black:     #0A0A0A;
+  --dark:      #111111;
+  --dark2:     #1A1A1A;
+  --dark3:     #222222;
+  --mid:       #333333;
+  --muted:     #666666;
+  --light:     #AAAAAA;
+  --white:     #FFFFFF;
+  --off-white: #F5F5F5;
+  --orange:    #FF6B35;
+
+  --font-display: 'Bebas Neue', sans-serif;
+  --font-body:    'Inter', sans-serif;
+
+  --max-w: 1200px;
+  --radius: 4px;
+  --transition: 0.2s ease;
+}
+
+html { scroll-behavior: smooth; }
+
+body {
+  font-family: var(--font-body);
+  background: var(--black);
+  color: var(--white);
+  line-height: 1.6;
+  overflow-x: hidden;
+}
+
+/* ---- UTILITY ---- */
+
+.section-eyebrow {
+  font-family: var(--font-body);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: var(--red);
+  margin-bottom: 12px;
+}
+
+.section-title {
+  font-family: var(--font-display);
+  font-size: clamp(36px, 5vw, 58px);
+  line-height: 1.05;
+  letter-spacing: 1px;
+  margin-bottom: 20px;
+  color: var(--white);
+}
+
+/* ---- BUTTONS ---- */
+
+.btn {
+  display: inline-block;
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  text-decoration: none;
+  padding: 14px 28px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: all var(--transition);
+  border: 2px solid transparent;
+}
+
+.btn--primary {
+  background: var(--red);
+  color: var(--white);
+  border-color: var(--red);
+}
+.btn--primary:hover { background: var(--red-dark); border-color: var(--red-dark); }
+
+.btn--ghost {
+  background: transparent;
+  color: var(--white);
+  border-color: rgba(255,255,255,0.3);
+}
+.btn--ghost:hover { border-color: var(--white); background: rgba(255,255,255,0.05); }
+
+.btn--outline {
+  background: transparent;
+  color: var(--white);
+  border-color: var(--mid);
+}
+.btn--outline:hover { border-color: var(--red); color: var(--red); }
+
+.btn--red {
+  background: var(--red);
+  color: var(--white);
+  border-color: var(--red);
+}
+.btn--red:hover { background: var(--red-dark); }
+
+.btn--nav {
+  background: var(--red);
+  color: var(--white);
+  border-color: var(--red);
+  padding: 10px 22px;
+  font-size: 12px;
+}
+.btn--nav:hover { background: var(--red-dark); }
+
+.btn--sm { padding: 10px 18px; font-size: 11px; }
+.btn--lg { padding: 18px 40px; font-size: 15px; }
+
+/* ---- NAV ---- */
+
+.nav {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  z-index: 100;
+  background: rgba(10,10,10,0.95);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--mid);
+}
+
+.nav__inner {
+  max-width: var(--max-w);
+  margin: 0 auto;
+  padding: 0 24px;
+  height: 68px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 32px;
+}
+
+.nav__logo {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  text-decoration: none;
+  flex-shrink: 0;
+}
+
+.nav__logo-barry {
+  font-family: var(--font-display);
+  font-size: 26px;
+  letter-spacing: 2px;
+  color: var(--white);
+}
+
+.nav__logo-il {
+  font-family: var(--font-body);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  color: var(--red);
+  text-transform: uppercase;
+  background: rgba(232,0,45,0.12);
+  padding: 3px 8px;
+  border-radius: 2px;
+  border: 1px solid rgba(232,0,45,0.3);
+}
+
+.nav__links {
+  display: flex;
+  list-style: none;
+  gap: 36px;
+  flex: 1;
+  justify-content: center;
+}
+
+.nav__links a {
+  color: var(--light);
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.5px;
+  transition: color var(--transition);
+}
+.nav__links a:hover { color: var(--white); }
+
+@media (max-width: 768px) {
+  .nav__links { display: none; }
+}
+
+/* ---- HERO ---- */
+
+.hero {
+  position: relative;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background:
+    url('https://images.unsplash.com/photo-1534438327276-14e5300c3a48?w=1600&q=80') center/cover no-repeat;
+  overflow: hidden;
+}
+
+.hero__overlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    135deg,
+    rgba(10,10,10,0.92) 0%,
+    rgba(10,10,10,0.75) 50%,
+    rgba(232,0,45,0.15) 100%
+  );
+}
+
+.hero__content {
+  position: relative;
+  z-index: 2;
+  max-width: 760px;
+  padding: 120px 24px 80px;
+  text-align: center;
+}
+
+.hero__eyebrow {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 4px;
+  color: var(--red);
+  margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+}
+.hero__eyebrow::before, .hero__eyebrow::after {
+  content: '';
+  flex: 1;
+  max-width: 60px;
+  height: 1px;
+  background: var(--red);
+}
+
+.hero__headline {
+  font-family: var(--font-display);
+  font-size: clamp(54px, 9vw, 110px);
+  line-height: 0.95;
+  letter-spacing: 2px;
+  color: var(--white);
+  margin-bottom: 28px;
+}
+
+.hero__headline--red { color: var(--red); }
+
+.hero__sub {
+  font-size: 17px;
+  color: var(--light);
+  line-height: 1.7;
+  margin-bottom: 40px;
+}
+
+.hero__ctas {
+  display: flex;
+  gap: 16px;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-bottom: 60px;
+}
+
+.hero__stats {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 32px;
+  flex-wrap: wrap;
+}
+
+.hero__stat {
+  text-align: center;
+}
+
+.hero__stat-num {
+  font-family: var(--font-display);
+  font-size: 48px;
+  color: var(--white);
+  line-height: 1;
+}
+
+.hero__stat-suffix {
+  font-family: var(--font-display);
+  font-size: 36px;
+  color: var(--red);
+}
+
+.hero__stat-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-top: 4px;
+}
+
+.hero__stat-divider {
+  width: 1px;
+  height: 48px;
+  background: var(--mid);
+}
+
+.hero__scroll-hint {
+  position: absolute;
+  bottom: 32px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 10px;
+  letter-spacing: 3px;
+  color: var(--muted);
+  animation: bounce 2s infinite;
+}
+
+@keyframes bounce {
+  0%, 100% { transform: translateX(-50%) translateY(0); }
+  50% { transform: translateX(-50%) translateY(6px); }
+}
+
+/* ---- PROGRESS BAR SECTION ---- */
+
+.progress-bar-section {
+  background: var(--dark2);
+  border-top: 1px solid var(--mid);
+  border-bottom: 1px solid var(--mid);
+  padding: 28px 24px;
+}
+
+.progress-bar-section__inner {
+  max-width: var(--max-w);
+  margin: 0 auto;
+}
+
+.progress-bar-section__label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 14px;
+  color: var(--light);
+}
+
+.progress-bar-section__raised {
+  color: var(--red);
+}
+
+.progress-bar-track {
+  position: relative;
+  height: 10px;
+  background: var(--mid);
+  border-radius: 5px;
+  overflow: visible;
+}
+
+.progress-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--red-dark), var(--red));
+  border-radius: 5px;
+  transition: width 1.5s ease;
+}
+
+.progress-bar-milestone {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.progress-bar-milestone::before {
+  content: '';
+  width: 2px;
+  height: 10px;
+  background: var(--white);
+  opacity: 0.4;
+}
+
+.progress-bar-milestone span {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--muted);
+  text-align: center;
+  margin-top: 6px;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+
+/* ---- ABOUT ---- */
+
+.about {
+  padding: 100px 24px;
+  background: var(--black);
+}
+
+.about__inner {
+  max-width: var(--max-w);
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 80px;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .about__inner { grid-template-columns: 1fr; gap: 48px; }
+}
+
+.about__text p {
+  color: var(--light);
+  font-size: 16px;
+  line-height: 1.8;
+  margin-bottom: 20px;
+}
+
+.about__text .btn { margin-top: 12px; }
+
+.about__cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.about__card {
+  background: var(--dark2);
+  border: 1px solid var(--mid);
+  border-radius: var(--radius);
+  padding: 24px;
+  transition: border-color var(--transition);
+}
+
+.about__card:hover { border-color: var(--red); }
+
+.about__card-icon {
+  font-size: 28px;
+  display: block;
+  margin-bottom: 12px;
+}
+
+.about__card h3 {
+  font-family: var(--font-display);
+  font-size: 20px;
+  letter-spacing: 0.5px;
+  margin-bottom: 8px;
+}
+
+.about__card p {
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+/* ---- LOCATIONS ---- */
+
+.locations {
+  padding: 100px 24px;
+  background: var(--dark);
+  border-top: 1px solid var(--mid);
+}
+
+.locations__inner {
+  max-width: var(--max-w);
+  margin: 0 auto;
+}
+
+.locations__inner > .section-title { margin-bottom: 48px; }
+
+.locations__grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px;
+}
+
+@media (max-width: 768px) {
+  .locations__grid { grid-template-columns: 1fr; }
+}
+
+.location-card {
+  background: var(--dark2);
+  border: 1px solid var(--mid);
+  border-radius: var(--radius);
+  padding: 32px;
+  position: relative;
+  overflow: hidden;
+}
+
+.location-card--active { border-color: var(--red); }
+
+.location-card__badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  padding: 4px 10px;
+  border-radius: 2px;
+  background: var(--red);
+  color: var(--white);
+  margin-bottom: 20px;
+}
+
+.location-card__badge--orange { background: var(--orange); }
+.location-card__badge--gray { background: var(--mid); color: var(--light); }
+
+.location-card__city {
+  font-family: var(--font-display);
+  font-size: 42px;
+  letter-spacing: 1px;
+  line-height: 1;
+  margin-bottom: 6px;
+}
+
+.location-card__area {
+  font-size: 13px;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
+.location-card__eta {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--light);
+  margin-bottom: 20px;
+}
+
+.location-card__bar {
+  height: 6px;
+  background: var(--mid);
+  border-radius: 3px;
+  margin-bottom: 10px;
+  overflow: hidden;
+}
+
+.location-card__fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--red-dark), var(--red));
+  border-radius: 3px;
+}
+
+.location-card__spots {
+  font-size: 13px;
+  color: var(--muted);
+  margin-bottom: 20px;
+}
+
+.location-card__spots strong { color: var(--white); }
+
+/* ---- TIERS ---- */
+
+.tiers {
+  padding: 100px 24px;
+  background: var(--black);
+}
+
+.tiers__inner {
+  max-width: var(--max-w);
+  margin: 0 auto;
+  text-align: center;
+}
+
+.tiers__sub {
+  font-size: 15px;
+  color: var(--muted);
+  max-width: 580px;
+  margin: 0 auto 60px;
+  line-height: 1.7;
+}
+
+.tiers__grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 20px;
+  text-align: left;
+}
+
+@media (max-width: 1024px) {
+  .tiers__grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 600px) {
+  .tiers__grid { grid-template-columns: 1fr; }
+}
+
+.tier-card {
+  background: var(--dark2);
+  border: 1px solid var(--mid);
+  border-radius: var(--radius);
+  padding: 32px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  position: relative;
+  transition: transform var(--transition), border-color var(--transition);
+}
+
+.tier-card:hover { transform: translateY(-4px); border-color: var(--red); }
+
+.tier-card--featured {
+  border-color: var(--red);
+  background: var(--dark3);
+  transform: scale(1.02);
+}
+
+.tier-card--featured:hover { transform: scale(1.02) translateY(-4px); }
+
+.tier-card--dark {
+  background: #0F0508;
+  border-color: rgba(232,0,45,0.4);
+}
+
+.tier-card__popular {
+  position: absolute;
+  top: -1px; left: 50%;
+  transform: translateX(-50%);
+  background: var(--red);
+  color: var(--white);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  padding: 4px 12px;
+  border-radius: 0 0 4px 4px;
+}
+
+.tier-card__tag {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 2.5px;
+  text-transform: uppercase;
+  color: var(--red);
+}
+
+.tier-card__price {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  line-height: 1;
+}
+
+.tier-card__currency {
+  font-family: var(--font-body);
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--muted);
+  padding-top: 8px;
+}
+
+.tier-card__amount {
+  font-family: var(--font-display);
+  font-size: 52px;
+  letter-spacing: 1px;
+  color: var(--white);
+}
+
+.tier-card__perks ul {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1;
+}
+
+.tier-card__perks li {
+  font-size: 13px;
+  color: var(--light);
+  line-height: 1.4;
+}
+
+.tier-card__spots {
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+
+.tier-card__bar {
+  height: 4px;
+  background: var(--mid);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+
+.tier-card__bar div {
+  height: 100%;
+  background: var(--red);
+  border-radius: 2px;
+}
+
+.tier-card .btn { width: 100%; text-align: center; }
+
+/* ---- TESTIMONIALS ---- */
+
+.testimonials {
+  padding: 100px 24px;
+  background: var(--dark);
+  border-top: 1px solid var(--mid);
+}
+
+.testimonials__inner {
+  max-width: var(--max-w);
+  margin: 0 auto;
+}
+
+.testimonials__grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px;
+  margin-top: 48px;
+}
+
+@media (max-width: 768px) {
+  .testimonials__grid { grid-template-columns: 1fr; }
+}
+
+.testimonial {
+  background: var(--dark2);
+  border: 1px solid var(--mid);
+  border-radius: var(--radius);
+  padding: 32px;
+  position: relative;
+}
+
+.testimonial::before {
+  content: '"';
+  position: absolute;
+  top: 16px; right: 24px;
+  font-family: var(--font-display);
+  font-size: 80px;
+  color: var(--red);
+  opacity: 0.15;
+  line-height: 1;
+}
+
+.testimonial p {
+  font-size: 15px;
+  color: var(--light);
+  line-height: 1.7;
+  font-style: italic;
+  margin-bottom: 24px;
+}
+
+.testimonial__author {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.testimonial__avatar {
+  width: 40px; height: 40px;
+  background: var(--red);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+.testimonial__author strong {
+  display: block;
+  font-size: 14px;
+}
+
+.testimonial__author span {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* ---- FAQ ---- */
+
+.faq {
+  padding: 100px 24px;
+  background: var(--black);
+}
+
+.faq__inner {
+  max-width: 760px;
+  margin: 0 auto;
+}
+
+.faq__list {
+  margin-top: 48px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.faq__item {
+  background: var(--dark2);
+  border: 1px solid var(--mid);
+  border-radius: var(--radius);
+  overflow: hidden;
+  transition: border-color var(--transition);
+}
+
+.faq__item[open] { border-color: var(--red); }
+
+.faq__item summary {
+  padding: 20px 24px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: var(--white);
+  user-select: none;
+}
+
+.faq__item summary::-webkit-details-marker { display: none; }
+
+.faq__item summary::after {
+  content: '+';
+  font-size: 20px;
+  color: var(--red);
+  font-weight: 300;
+  transition: transform var(--transition);
+  flex-shrink: 0;
+  margin-left: 16px;
+}
+
+.faq__item[open] summary::after {
+  transform: rotate(45deg);
+}
+
+.faq__item p {
+  padding: 0 24px 20px;
+  font-size: 14px;
+  color: var(--muted);
+  line-height: 1.8;
+}
+
+/* ---- FINAL CTA ---- */
+
+.final-cta {
+  padding: 120px 24px;
+  background: linear-gradient(135deg, var(--dark) 0%, #1A0008 60%, #2A000F 100%);
+  border-top: 1px solid rgba(232,0,45,0.2);
+  text-align: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.final-cta::before {
+  content: "BARRY'S";
+  position: absolute;
+  font-family: var(--font-display);
+  font-size: 300px;
+  color: rgba(232,0,45,0.04);
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.final-cta__inner {
+  position: relative;
+  z-index: 2;
+  max-width: 640px;
+  margin: 0 auto;
+}
+
+.final-cta h2 {
+  font-family: var(--font-display);
+  font-size: clamp(44px, 7vw, 80px);
+  line-height: 1;
+  margin-bottom: 20px;
+}
+
+.final-cta h2 span { color: var(--red); }
+
+.final-cta p {
+  font-size: 16px;
+  color: var(--muted);
+  margin-bottom: 40px;
+  line-height: 1.7;
+}
+
+.final-cta__trust {
+  margin-top: 28px;
+  display: flex;
+  gap: 28px;
+  justify-content: center;
+  flex-wrap: wrap;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  letter-spacing: 0.5px;
+}
+
+/* ---- FOOTER ---- */
+
+.footer {
+  background: var(--dark2);
+  border-top: 1px solid var(--mid);
+  padding: 60px 24px 0;
+}
+
+.footer__inner {
+  max-width: var(--max-w);
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr 1fr;
+  gap: 48px;
+  padding-bottom: 48px;
+}
+
+@media (max-width: 768px) {
+  .footer__inner { grid-template-columns: 1fr 1fr; }
+}
+
+@media (max-width: 480px) {
+  .footer__inner { grid-template-columns: 1fr; }
+}
+
+.footer__brand .nav__logo-barry { font-size: 30px; }
+.footer__brand .nav__logo-il { font-size: 11px; }
+
+.footer__brand p {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.7;
+  margin-top: 14px;
+  max-width: 300px;
+}
+
+.footer__links h4,
+.footer__contact h4 {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--light);
+  margin-bottom: 16px;
+}
+
+.footer__links {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.footer__links a {
+  font-size: 13px;
+  color: var(--muted);
+  text-decoration: none;
+  transition: color var(--transition);
+}
+.footer__links a:hover { color: var(--white); }
+
+.footer__contact p {
+  font-size: 13px;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+
+.footer__social {
+  display: flex;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.footer__social a {
+  width: 36px; height: 36px;
+  background: var(--mid);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--light);
+  text-decoration: none;
+  transition: background var(--transition), color var(--transition);
+}
+
+.footer__social a:hover { background: var(--red); color: var(--white); }
+
+.footer__bottom {
+  border-top: 1px solid var(--mid);
+  padding: 20px 0;
+  text-align: center;
+}
+
+.footer__bottom p {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* ---- ANIMATIONS ---- */
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(24px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.hero__content { animation: fadeUp 0.8s ease both; }
+
+</style>
+</head>
+<body>
+
+  <!-- NAV -->
+  <nav class="nav">
+    <div class="nav__inner">
+      <div class="nav__logo">
+        <span class="nav__logo-barry">BARRY'S</span>
+        <span class="nav__logo-il">ISRAEL</span>
+      </div>
+      <ul class="nav__links">
+        <li><a href="#about">About</a></li>
+        <li><a href="#locations">Locations</a></li>
+        <li><a href="#tiers">Founder Tiers</a></li>
+        <li><a href="#faq">FAQ</a></li>
+      </ul>
+      <a href="#tiers" class="btn btn--nav">Become a Founder</a>
+    </div>
+  </nav>
+
+  <!-- HERO -->
+  <section class="hero">
+    <div class="hero__overlay"></div>
+    <div class="hero__content">
+      <p class="hero__eyebrow">COMING TO ISRAEL</p>
+      <h1 class="hero__headline">
+        THE BEST WORKOUT<br />
+        IN THE WORLD.<br />
+        <span class="hero__headline--red">YOUR CITY. YOUR STUDIO.</span>
+      </h1>
+      <p class="hero__sub">
+        Help bring Barry's to Tel Aviv, Jerusalem &amp; beyond.<br />
+        Become a Founder and lock in exclusive lifetime perks — before doors open.
+      </p>
+      <div class="hero__ctas">
+        <a href="#tiers" class="btn btn--primary">See Founder Packages</a>
+        <a href="#about" class="btn btn--ghost">How It Works</a>
+      </div>
+      <div class="hero__stats">
+        <div class="hero__stat">
+          <span class="hero__stat-num" data-target="1200">0</span>
+          <span class="hero__stat-label">Founders so far</span>
+        </div>
+        <div class="hero__stat-divider"></div>
+        <div class="hero__stat">
+          <span class="hero__stat-num" data-target="82">0</span><span class="hero__stat-suffix">%</span>
+          <span class="hero__stat-label">of Goal Reached</span>
+        </div>
+        <div class="hero__stat-divider"></div>
+        <div class="hero__stat">
+          <span class="hero__stat-num" data-target="3">0</span>
+          <span class="hero__stat-label">Cities Planned</span>
+        </div>
+      </div>
+    </div>
+    <div class="hero__scroll-hint">↓ SCROLL</div>
+  </section>
+
+  <!-- PROGRESS BAR -->
+  <section class="progress-bar-section">
+    <div class="progress-bar-section__inner">
+      <div class="progress-bar-section__label">
+        <span>Crowdfunding Goal: <strong>₪3,600,000</strong></span>
+        <span class="progress-bar-section__raised">₪2,952,000 raised</span>
+      </div>
+      <div class="progress-bar-track">
+        <div class="progress-bar-fill" style="width: 82%"></div>
+        <div class="progress-bar-milestone" style="left: 50%"><span>50%<br/>Tel Aviv</span></div>
+        <div class="progress-bar-milestone" style="left: 75%"><span>75%<br/>Jerusalem</span></div>
+        <div class="progress-bar-milestone" style="left: 100%"><span>100%<br/>Haifa</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ABOUT -->
+  <section class="about" id="about">
+    <div class="about__inner">
+      <div class="about__text">
+        <p class="section-eyebrow">WHAT IS BARRY'S?</p>
+        <h2 class="section-title">The Original Boutique<br />Fitness Experience</h2>
+        <p>Since 1998, Barry's has been the gold standard in high-intensity interval training. Known for its signature red lighting, treadmills, and weight floor, it's the workout celebrities, athletes, and everyday people swear by.</p>
+        <p>Now we're bringing that energy to Israel — and we're doing it together with you, the community.</p>
+        <a href="#tiers" class="btn btn--primary">Claim Your Founder Spot</a>
+      </div>
+      <div class="about__cards">
+        <div class="about__card">
+          <span class="about__card-icon">🏃</span>
+          <h3>World-Class Training</h3>
+          <p>50-minute cardio &amp; strength intervals led by elite coaches</p>
+        </div>
+        <div class="about__card">
+          <span class="about__card-icon">🔴</span>
+          <h3>The Red Room</h3>
+          <p>Iconic low-lit studios designed for maximum intensity and community</p>
+        </div>
+        <div class="about__card">
+          <span class="about__card-icon">🥤</span>
+          <h3>Barry's Fuel Bar</h3>
+          <p>Post-workout shakes and nutrition built into every location</p>
+        </div>
+        <div class="about__card">
+          <span class="about__card-icon">🌍</span>
+          <h3>Global Community</h3>
+          <p>80+ studios across 14 countries — now coming home to Israel</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- LOCATIONS -->
+  <section class="locations" id="locations">
+    <div class="locations__inner">
+      <p class="section-eyebrow">PLANNED OPENINGS</p>
+      <h2 class="section-title">Where We're Opening First</h2>
+      <div class="locations__grid">
+
+        <div class="location-card location-card--active">
+          <div class="location-card__badge">FUNDED ✓</div>
+          <div class="location-card__city">TEL AVIV</div>
+          <div class="location-card__area">Rothschild Blvd Area</div>
+          <div class="location-card__eta">Opening Q1 2026</div>
+          <div class="location-card__bar">
+            <div class="location-card__fill" style="width:100%"></div>
+          </div>
+          <p class="location-card__spots">Fully funded — <strong>0 founder spots left</strong></p>
+        </div>
+
+        <div class="location-card location-card--progress">
+          <div class="location-card__badge location-card__badge--orange">IN PROGRESS</div>
+          <div class="location-card__city">JERUSALEM</div>
+          <div class="location-card__area">Mamilla / City Center</div>
+          <div class="location-card__eta">Opening Q3 2026</div>
+          <div class="location-card__bar">
+            <div class="location-card__fill" style="width:64%"></div>
+          </div>
+          <p class="location-card__spots"><strong>115 founder spots</strong> remaining</p>
+          <a href="#tiers" class="btn btn--primary btn--sm">Reserve Now</a>
+        </div>
+
+        <div class="location-card location-card--soon">
+          <div class="location-card__badge location-card__badge--gray">COMING SOON</div>
+          <div class="location-card__city">HAIFA</div>
+          <div class="location-card__area">German Colony / Carmel</div>
+          <div class="location-card__eta">Opening Q1 2027</div>
+          <div class="location-card__bar">
+            <div class="location-card__fill" style="width:22%"></div>
+          </div>
+          <p class="location-card__spots"><strong>300 founder spots</strong> remaining</p>
+          <a href="#tiers" class="btn btn--ghost btn--sm">Join Waitlist</a>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- TIERS -->
+  <section class="tiers" id="tiers">
+    <div class="tiers__inner">
+      <p class="section-eyebrow">FOUNDER PACKAGES</p>
+      <h2 class="section-title">Choose Your Tier.<br />Own a Piece of the Studio.</h2>
+      <p class="tiers__sub">Every package is a one-time crowdfund pledge. Perks are yours for life — regardless of when you join, your founder status never expires.</p>
+
+      <div class="tiers__grid">
+
+        <!-- TIER 1 -->
+        <div class="tier-card">
+          <div class="tier-card__tag">SUPPORTER</div>
+          <div class="tier-card__price">
+            <span class="tier-card__currency">₪</span>
+            <span class="tier-card__amount">490</span>
+          </div>
+          <div class="tier-card__perks">
+            <ul>
+              <li>✓ Founder name on studio wall</li>
+              <li>✓ 10% off classes — forever</li>
+              <li>✓ Early access to new locations</li>
+              <li>✓ Exclusive Founder digital badge</li>
+              <li>✓ Opening day invite</li>
+            </ul>
+          </div>
+          <div class="tier-card__spots">312 claimed of 500</div>
+          <div class="tier-card__bar"><div style="width:62%"></div></div>
+          <a href="#checkout" class="btn btn--outline">Select Supporter</a>
+        </div>
+
+        <!-- TIER 2 — FEATURED -->
+        <div class="tier-card tier-card--featured">
+          <div class="tier-card__popular">MOST POPULAR</div>
+          <div class="tier-card__tag">FOUNDING MEMBER</div>
+          <div class="tier-card__price">
+            <span class="tier-card__currency">₪</span>
+            <span class="tier-card__amount">1,290</span>
+          </div>
+          <div class="tier-card__perks">
+            <ul>
+              <li>✓ Everything in Supporter</li>
+              <li>✓ 20 class pack (use anytime)</li>
+              <li>✓ 20% off all merchandise</li>
+              <li>✓ Private pre-launch workout</li>
+              <li>✓ Dedicated locker + name plate</li>
+              <li>✓ Quarterly Founders Mixer invite</li>
+            </ul>
+          </div>
+          <div class="tier-card__spots">187 claimed of 300</div>
+          <div class="tier-card__bar"><div style="width:62%"></div></div>
+          <a href="#checkout" class="btn btn--primary">Select Founding Member</a>
+        </div>
+
+        <!-- TIER 3 -->
+        <div class="tier-card">
+          <div class="tier-card__tag">ELITE FOUNDER</div>
+          <div class="tier-card__price">
+            <span class="tier-card__currency">₪</span>
+            <span class="tier-card__amount">3,900</span>
+          </div>
+          <div class="tier-card__perks">
+            <ul>
+              <li>✓ Everything in Founding Member</li>
+              <li>✓ 60 class pack (use anytime)</li>
+              <li>✓ 1 free guest pass/month — forever</li>
+              <li>✓ Branded Barry's kit bag + apparel</li>
+              <li>✓ VIP studio tour &amp; meet the team</li>
+              <li>✓ Annual strategy dinner with founders</li>
+              <li>✓ Priority booking — all studios</li>
+            </ul>
+          </div>
+          <div class="tier-card__spots">41 claimed of 100</div>
+          <div class="tier-card__bar"><div style="width:41%"></div></div>
+          <a href="#checkout" class="btn btn--outline">Select Elite Founder</a>
+        </div>
+
+        <!-- TIER 4 -->
+        <div class="tier-card tier-card--dark">
+          <div class="tier-card__tag">STUDIO PATRON</div>
+          <div class="tier-card__price">
+            <span class="tier-card__currency">₪</span>
+            <span class="tier-card__amount">12,000</span>
+          </div>
+          <div class="tier-card__perks">
+            <ul>
+              <li>✓ Everything in Elite Founder</li>
+              <li>✓ Unlimited classes — all Israel studios</li>
+              <li>✓ Name on studio entrance plaque</li>
+              <li>✓ Equity participation discussion</li>
+              <li>✓ Co-branded milestone recognition</li>
+              <li>✓ Direct line to studio management</li>
+              <li>✓ Transferable to a 2nd person</li>
+            </ul>
+          </div>
+          <div class="tier-card__spots">8 claimed of 25</div>
+          <div class="tier-card__bar"><div style="width:32%"></div></div>
+          <a href="#checkout" class="btn btn--red">Select Studio Patron</a>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- TESTIMONIALS -->
+  <section class="testimonials">
+    <div class="testimonials__inner">
+      <p class="section-eyebrow">EARLY FOUNDERS SAY</p>
+      <h2 class="section-title">The Community Is Already Building</h2>
+      <div class="testimonials__grid">
+        <div class="testimonial">
+          <p>"I've trained at Barry's in NYC, London, and Dubai. The day I heard it's coming to Tel Aviv I pledged immediately. We deserve this."</p>
+          <div class="testimonial__author">
+            <div class="testimonial__avatar">S</div>
+            <div>
+              <strong>Shira M.</strong>
+              <span>Founding Member · Tel Aviv</span>
+            </div>
+          </div>
+        </div>
+        <div class="testimonial">
+          <p>"The workouts are incredible but the community is what keeps you coming back. Can't wait for Jerusalem to have its own Red Room."</p>
+          <div class="testimonial__author">
+            <div class="testimonial__avatar">D</div>
+            <div>
+              <strong>David K.</strong>
+              <span>Elite Founder · Jerusalem</span>
+            </div>
+          </div>
+        </div>
+        <div class="testimonial">
+          <p>"I pledged at the Supporter tier just to get my name on the wall. This is a piece of history for Israel's fitness scene."</p>
+          <div class="testimonial__author">
+            <div class="testimonial__avatar">N</div>
+            <div>
+              <strong>Noa L.</strong>
+              <span>Supporter · Haifa</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FAQ -->
+  <section class="faq" id="faq">
+    <div class="faq__inner">
+      <p class="section-eyebrow">GOT QUESTIONS?</p>
+      <h2 class="section-title">Frequently Asked</h2>
+      <div class="faq__list">
+
+        <details class="faq__item">
+          <summary>Is my pledge refundable if a studio doesn't open?</summary>
+          <p>Yes. If a location fails to reach its funding goal within 18 months of your pledge, you receive a full refund. If the goal is reached and opening is delayed, you may choose a refund or a credit.</p>
+        </details>
+
+        <details class="faq__item">
+          <summary>When will I receive my class packs?</summary>
+          <p>Class packs are credited to your Barry's account 48 hours before the studio's official opening day. You'll receive an email with booking instructions as soon as the date is confirmed.</p>
+        </details>
+
+        <details class="faq__item">
+          <summary>Can I pledge for multiple cities?</summary>
+          <p>Absolutely. Each city has its own Founder campaign. You can pledge for one or all three — perks stack across all locations you support.</p>
+        </details>
+
+        <details class="faq__item">
+          <summary>Is this an investment or a purchase?</summary>
+          <p>For Supporter, Founding Member, and Elite tiers, this is a pre-purchase of products and experiences — not a financial investment. Studio Patron tier includes a conversation about equity participation, subject to legal and regulatory review.</p>
+        </details>
+
+        <details class="faq__item">
+          <summary>Are classes in Hebrew or English?</summary>
+          <p>Barry's Israel studios will offer classes in both Hebrew and English, with bilingual coaches. Our goal is a fully local experience with Barry's global standards.</p>
+        </details>
+
+        <details class="faq__item">
+          <summary>What payment methods are accepted?</summary>
+          <p>We accept all major credit cards, PayPal, and bank transfer (העברה בנקאית). Payments are processed in ILS (Israeli Shekel).</p>
+        </details>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- FINAL CTA -->
+  <section class="final-cta">
+    <div class="final-cta__inner">
+      <p class="section-eyebrow">DON'T MISS OUT</p>
+      <h2>The Red Room Is Coming.<br /><span>Will You Be on the Wall?</span></h2>
+      <p>Join over 1,200 founders already committed to building Israel's premier fitness community.</p>
+      <a href="#tiers" class="btn btn--primary btn--lg">Become a Founder Today</a>
+      <div class="final-cta__trust">
+        <span>🔒 Secure payments</span>
+        <span>✓ Full refund guarantee</span>
+        <span>🇮🇱 Proudly local</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- FOOTER -->
+  <footer class="footer">
+    <div class="footer__inner">
+      <div class="footer__brand">
+        <span class="nav__logo-barry">BARRY'S</span>
+        <span class="nav__logo-il">ISRAEL</span>
+        <p>This is an independent crowdfunding campaign to bring Barry's Bootcamp studios to Israel. Barry's® is a registered trademark of Barry's LLC.</p>
+      </div>
+      <div class="footer__links">
+        <h4>Campaign</h4>
+        <a href="#about">About</a>
+        <a href="#locations">Locations</a>
+        <a href="#tiers">Founder Tiers</a>
+        <a href="#faq">FAQ</a>
+      </div>
+      <div class="footer__links">
+        <h4>Legal</h4>
+        <a href="#">Terms & Conditions</a>
+        <a href="#">Refund Policy</a>
+        <a href="#">Privacy Policy</a>
+      </div>
+      <div class="footer__contact">
+        <h4>Contact</h4>
+        <p>hello@barrysisrael.co.il</p>
+        <p>+972 3-000-0000</p>
+        <div class="footer__social">
+          <a href="#">IG</a>
+          <a href="#">FB</a>
+          <a href="#">TK</a>
+        </div>
+      </div>
+    </div>
+    <div class="footer__bottom">
+      <p>© 2025 Barry's Israel Founders Campaign. All rights reserved.</p>
+    </div>
+  </footer>
+
+  <script>
+/* Barry's Israel — Founders Campaign JS */
+
+// Animated counter for hero stats
+function animateCounter(el) {
+  const target = parseInt(el.dataset.target, 10);
+  const duration = 1800;
+  const start = performance.now();
+
+  function step(now) {
+    const elapsed = now - start;
+    const progress = Math.min(elapsed / duration, 1);
+    // Ease out cubic
+    const eased = 1 - Math.pow(1 - progress, 3);
+    el.textContent = Math.floor(eased * target).toLocaleString();
+    if (progress < 1) requestAnimationFrame(step);
+  }
+
+  requestAnimationFrame(step);
+}
+
+// Intersection observer for stat counters
+const counters = document.querySelectorAll('.hero__stat-num[data-target]');
+const heroObserver = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      animateCounter(entry.target);
+      heroObserver.unobserve(entry.target);
+    }
+  });
+}, { threshold: 0.5 });
+
+counters.forEach(el => heroObserver.observe(el));
+
+// Scroll reveal for sections
+const revealEls = document.querySelectorAll(
+  '.about__card, .location-card, .tier-card, .testimonial, .faq__item'
+);
+
+const revealObserver = new IntersectionObserver((entries) => {
+  entries.forEach((entry, i) => {
+    if (entry.isIntersecting) {
+      setTimeout(() => {
+        entry.target.style.opacity = '1';
+        entry.target.style.transform = 'translateY(0)';
+      }, (entry.target.dataset.delay || 0) * 1);
+      revealObserver.unobserve(entry.target);
+    }
+  });
+}, { threshold: 0.1 });
+
+revealEls.forEach((el, i) => {
+  el.style.opacity = '0';
+  el.style.transform = 'translateY(20px)';
+  el.style.transition = 'opacity 0.5s ease, transform 0.5s ease';
+  el.dataset.delay = (i % 4) * 80;
+  revealObserver.observe(el);
+});
+
+// Sticky nav shadow on scroll
+const nav = document.querySelector('.nav');
+window.addEventListener('scroll', () => {
+  nav.style.boxShadow = window.scrollY > 10
+    ? '0 4px 24px rgba(0,0,0,0.6)'
+    : 'none';
+}, { passive: true });
+
+// Smooth anchor scroll (polyfill for safari)
+document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+  anchor.addEventListener('click', e => {
+    const target = document.querySelector(anchor.getAttribute('href'));
+    if (target) {
+      e.preventDefault();
+      target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  });
+});
+
+// Active nav link highlight
+const sections = document.querySelectorAll('section[id]');
+const navLinks = document.querySelectorAll('.nav__links a');
+
+const sectionObserver = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      navLinks.forEach(link => {
+        link.style.color = link.getAttribute('href') === `#${entry.target.id}`
+          ? '#FFFFFF'
+          : '';
+      });
+    }
+  });
+}, { threshold: 0.4 });
+
+sections.forEach(s => sectionObserver.observe(s));
+
+// Checkout stub — replace with real payment integration
+document.querySelectorAll('a[href="#checkout"]').forEach(btn => {
+  btn.addEventListener('click', e => {
+    e.preventDefault();
+    const tier = btn.closest('.tier-card')?.querySelector('.tier-card__tag')?.textContent;
+    const price = btn.closest('.tier-card')?.querySelector('.tier-card__amount')?.textContent;
+    alert(`🔴 Checkout coming soon!\n\nYou selected: ${tier}\nPrice: ₪${price}\n\nThis will connect to the payment processor.`);
+  });
+});
+
+</script>
+</body>
+</html>
