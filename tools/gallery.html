@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nexus Model Gallery</title>
+<style>
+  :root { --bg: #0b0a1a; --text: #ecebff; --muted: #9a98c0; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 13px system-ui, sans-serif; }
+  #bar { position: fixed; top: 0; left: 0; right: 0; padding: 8px 12px; background: rgba(11,10,26,0.9); z-index: 2; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  #bar input { background: #15132e; color: var(--text); border: 1px solid #2c2a55; border-radius: 6px; padding: 5px 8px; }
+  #stats { color: var(--muted); }
+  canvas { display: block; width: 100vw; height: 100vh; }
+</style>
+</head>
+<body>
+<div id="bar"><b>NEXUS MODEL GALLERY</b><input id="filter" placeholder="filter (e.g. dalek, thanos)"><span id="stats">sculpting…</span></div>
+<canvas id="c"></canvas>
+<script src="../vendor/three.min.js"></script>
+<script src="../config.js"></script>
+<script src="../js/core.js"></script>
+<script src="../js/sdf.js"></script>
+<script src="../js/content.js"></script>
+<script src="../js/models.js"></script>
+<script>
+// Renders every sculpted model on a turntable grid. Open with ?only=key1,key2 or type a filter.
+(() => {
+  const params = new URLSearchParams(location.search);
+  const canvas = document.getElementById('c');
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
+  renderer.outputEncoding = THREE.sRGBEncoding; renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.shadowMap.enabled = true;
+  const scene = new THREE.Scene(); scene.background = new THREE.Color('#1a1838');
+  const camera = new THREE.PerspectiveCamera(30, 1, 0.1, 500);
+  scene.add(new THREE.HemisphereLight('#dfe8ff', '#3a3050', 1.0));
+  const sun = new THREE.DirectionalLight('#fff', 1.6); sun.position.set(5, 10, 8); scene.add(sun);
+  const pm = new THREE.PMREMGenerator(renderer);
+  const env = new THREE.Scene(); env.add(new THREE.Mesh(new THREE.SphereGeometry(10, 16, 8), new THREE.MeshBasicMaterial({ color: '#6a70a0', side: THREE.BackSide })));
+  const lamp = new THREE.Mesh(new THREE.PlaneGeometry(6, 3), new THREE.MeshBasicMaterial({ color: '#fff' })); lamp.position.set(0, 7, 3); lamp.lookAt(0, 0, 0); env.add(lamp);
+  scene.environment = pm.fromScene(env, 0.03).texture;
+  const mats = {
+    skin: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.62 }), gloss: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.22 }),
+    metal: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.28, metalness: 0.85 }), gold: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.22, metalness: 1 }),
+    stone: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95 }), ghost: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.3, transparent: true, opacity: 0.72 }),
+    glowSoft: new THREE.MeshBasicMaterial({ vertexColors: true }),
+  };
+  const only = params.get('only');
+  let keys = only ? only.split(',') : [...Object.keys(NX.ENEMIES), 'player:#4a9cff', 'curator', 'shop', 'garage', 'score', 'gunter:#ff4f8b',
+    'mount_delorean', 'mount_batmobile', 'mount_ecto1', 'mount_nimbus', 'mount_elytra', 'chest', 'egg', 'pk_coin', 'pk_heart', 'pk_pokeballs', 'pk_grenade', 'pk_mushroom', 'pk_star', 'pk_extralife', 'pk_key:#e08a4a', 'pk_relic', 'pk_mount', 'tree_round', 'tree_pine', 'tree_palm', 'bush', 'rock', 'pipe', 'tardis', 'statue'];
+  const cells = [];
+  let tris = 0, ms = 0;
+  const res = Number(params.get('res') || 1);
+  function build(key) {
+    const spec = NX.Models.spec(key); if (!spec) return null;
+    const root = new THREE.Group(), body = new THREE.Group(); root.add(body);
+    for (const p of spec.parts) {
+      const t0 = performance.now();
+      const m = NX.SDF.mesh(NX.SDF.compile(p.prims), (p.res || 0.02) * res);
+      ms += performance.now() - t0;
+      if (!m) continue;
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(m.positions, 3)); g.setAttribute('normal', new THREE.BufferAttribute(m.normals, 3)); g.setAttribute('color', new THREE.BufferAttribute(m.colors, 3)); g.setIndex(new THREE.BufferAttribute(m.indices, 1));
+      tris += m.indices.length / 3;
+      body.add(new THREE.Mesh(g, mats[p.mat || 'skin'] || mats.skin));
+    }
+    body.scale.setScalar(spec.scale || 1);
+    return { root, spec };
+  }
+  const cols = Math.ceil(Math.sqrt(keys.length * 1.6));
+  keys.forEach((k, i) => {
+    const b = build(k); if (!b) return;
+    const x = (i % cols) * 2.4, z = Math.floor(i / cols) * 2.8;
+    b.root.position.set(x, 0, z); scene.add(b.root);
+    const label = document.createElement('canvas'); label.width = 256; label.height = 48; const lc = label.getContext('2d'); lc.fillStyle = '#fff'; lc.font = 'bold 26px system-ui'; lc.textAlign = 'center'; lc.fillText(k.split(':')[0], 128, 32);
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(label), transparent: true })); sp.scale.set(2, 0.38, 1); sp.position.set(x, -0.25, z + 0.6); scene.add(sp);
+    cells.push({ key: k, root: b.root, label: sp });
+  });
+  const rows = Math.ceil(cells.length / cols);
+  const cx = (cols - 1) * 1.2, cz = (rows - 1) * 1.4;
+  const resize = () => { renderer.setSize(innerWidth, innerHeight, false); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); };
+  addEventListener('resize', resize); resize();
+  const fit = Math.max(cols * 2.4, rows * 2.8 * camera.aspect) * 0.95;
+  camera.position.set(cx, fit * 0.85, cz + fit * 1.35); camera.lookAt(cx, 0.4, cz);
+  document.getElementById('stats').textContent = `${cells.length} models · ${Math.round(tris).toLocaleString()} triangles · sculpted in ${Math.round(ms)} ms`;
+  document.getElementById('filter').addEventListener('input', (e) => { const q = e.target.value.toLowerCase(); for (const c of cells) c.root.visible = c.label.visible = !q || c.key.includes(q); });
+  const spin = !params.has('still');
+  const loop = (t) => { if (spin) for (const c of cells) c.root.rotation.y = t / 1500; else for (const c of cells) c.root.rotation.y = -0.6; renderer.render(scene, camera); requestAnimationFrame(loop); };
+  requestAnimationFrame(loop);
+  window.__galleryReady = true;
+})();
+</script>
+</body>
+</html>
