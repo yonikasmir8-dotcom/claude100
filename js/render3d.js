@@ -44,7 +44,9 @@
       renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
     } catch { return false; }
     renderer.outputEncoding = THREE.sRGBEncoding;
-    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    const tm = new URLSearchParams(location.search).get('tm');
+    renderer.toneMapping = tm === 'none' ? THREE.NoToneMapping : THREE.ACESFilmicToneMapping;
+    R3D.tm = tm || 'aces';
     renderer.shadowMap.enabled = Q.shadows;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     scene = new THREE.Scene();
@@ -84,7 +86,7 @@
     env.add(new THREE.Mesh(g, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide })));
     const panel = new THREE.Mesh(new THREE.PlaneGeometry(6, 3), new THREE.MeshBasicMaterial({ color: '#ffffff' }));
     panel.position.set(0, 7, 3); panel.lookAt(0, 0, 0); env.add(panel);
-    scene.environment = pm.fromScene(env, 0.03).texture;
+    R3D.envMap = pm.fromScene(env, 0.03).texture;   // used for character/prop reflections only
     pm.dispose();
   }
 
@@ -93,7 +95,7 @@
   const glowMats = new Map(), haloMats = new Map();
   let haloTex;
   function initMaterials() {
-    const std = (o) => new THREE.MeshStandardMaterial(Object.assign({ vertexColors: true }, o));
+    const std = (o) => new THREE.MeshStandardMaterial(Object.assign({ vertexColors: true, envMap: R3D.envMap, envMapIntensity: 0.6 }, o));
     MAT.skin = std({ roughness: 0.62, metalness: 0.0 });
     MAT.gloss = std({ roughness: 0.22, metalness: 0.05 });
     MAT.metal = std({ roughness: 0.28, metalness: 0.85 });
@@ -239,7 +241,7 @@
   // Hard-surface hand props & weapons (pointing along +X, held at the origin).
   function propMesh(kind, color) {
     const g = new THREE.Group();
-    const std = (c, o) => new THREE.MeshStandardMaterial(Object.assign({ color: c, roughness: 0.4, metalness: 0.3 }, o));
+    const std = (c, o) => new THREE.MeshStandardMaterial(Object.assign({ color: c, roughness: 0.4, metalness: 0.3, envMap: R3D.envMap, envMapIntensity: 0.8 }, o));
     const add = (geom, mat, x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0) => { const m = new THREE.Mesh(geom, mat); m.position.set(x, y, z); m.rotation.set(rx, ry, rz); m.castShadow = true; g.add(m); return m; };
     const cylX = (r, len, segs = 16) => new THREE.CylinderGeometry(r, r, len, segs).rotateZ(-Math.PI / 2);
     const glowShell = (col) => new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.25, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
@@ -367,9 +369,12 @@
       case 'stripe': m = std({ emissive: '#ffffff', emissiveMap: tex('stripe' + th.wallColor, blockTex.stripe(th.wallColor), [1, h]), roughness: 0.35, metalness: 0.4 }); break;
       case 'lcars': m = std({ emissive: '#ffffff', emissiveMap: tex('lcars', blockTex.lcars, [1, h]), roughness: 0.5 }); break;
       case 'panel': m = std({ map: tex('panel', blockTex.panel, [1, h]), roughness: 0.4 }); break;
-      case 'building':
-        m = std({ map: canvasTex('wb:' + h, 64, 64, blockTex.windowsBase, { repeat: [1, h] }), emissive: th.windows || '#ffd76a', emissiveMap: canvasTex('we:' + h, 64, 64, blockTex.windows, { repeat: [1, h] }), emissiveIntensity: DARK.has(themeKey(th)) ? 1.2 : 0.35, roughness: 0.5, metalness: 0.2 });
+      case 'building': {
+        const side = std({ map: canvasTex('wb:' + h, 64, 64, blockTex.windowsBase, { repeat: [1, h] }), emissive: th.windows || '#ffd76a', emissiveMap: canvasTex('we:' + h, 64, 64, blockTex.windows, { repeat: [1, h] }), emissiveIntensity: DARK.has(themeKey(th)) ? 1.2 : 0.35, roughness: 0.5, metalness: 0.2 });
+        const roof = std({ map: canvasTex('roof', 64, 64, blockTex.panel), roughness: 0.8 });
+        m = [side, side, roof, roof, side, side];
         break;
+      }
       case 'qblock': m = std({ map: tex('q', blockTex.qblock, [1, 1]), emissive: '#5a3a00', roughness: 0.4 }); break;
       default: m = std({});
     }
