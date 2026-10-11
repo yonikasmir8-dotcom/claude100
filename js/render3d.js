@@ -851,7 +851,14 @@
     const key = 'player:' + g.color;
     if (!pv || pv.key !== key) {
       const v = instance(key);
-      if (!v) { request(key, true); return; }
+      if (!v) {
+        // stand-in capsule until the sculpted avatar is ready
+        request(key, true);
+        if (!R3D._stand) { R3D._stand = new THREE.Mesh(new THREE.CapsuleGeometry(0.25, 0.6, 4, 12).translate(0, 0.55, 0), new THREE.MeshStandardMaterial({ color: g.color, roughness: 0.4 })); scene.add(R3D._stand); }
+        R3D._stand.position.set(P.x / TS, 0, P.y / TS);
+        return;
+      }
+      if (R3D._stand) { scene.remove(R3D._stand); R3D._stand = null; }
       if (pv) scene.remove(pv.group);
       const group = new THREE.Group();
       group.add(v.root);
