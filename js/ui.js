@@ -175,6 +175,22 @@
     }
     c.putImageData(img, 0, 0);
     map.base = cv;
+    // the search lens shows its circle at full colour (outside it: as dim as the map)
+    const hc = circles[0];
+    map.lens = null;
+    if (hc) {
+      const k = hc.r + 2, n = 2 * k + 1, lv = document.createElement('canvas');
+      lv.width = lv.height = n;
+      const lc = lv.getContext('2d'), li = lc.createImageData(n, n);
+      for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+        const sx = hc.sx - k + x, sy = hc.sy - k + y, i = (y * n + x) * 4;
+        if (!W.inBounds(sx, sy)) continue;
+        const rgb = hexRgb(mapTheme(sx, sy).map), f = inCircle(hc, sx, sy) || Game.isDiscovered(sx, sy) ? 1 : 0.3;
+        li.data[i] = rgb[0] * f; li.data[i + 1] = rgb[1] * f; li.data[i + 2] = rgb[2] * f; li.data[i + 3] = 255;
+      }
+      lc.putImageData(li, 0, 0);
+      map.lens = { sx: hc.sx, sy: hc.sy, cv: lv };
+    }
   }
   function updateMap() {
     if (Input.hit('map') || Input.hit('pause')) { UI.mapOpen = false; return; }
@@ -239,7 +255,8 @@
     const lx = hc.sx > 0 ? map.x + 8 : map.x + size - ls - 8, ly = hc.sy > 0 ? map.y + 8 : map.y + size - ls - 26;
     Art.rrect(ctx, lx - 4, ly - 4, ls + 8, ls + 26, 6, 'rgba(4,4,16,0.92)');
     ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(map.base, hc.sx - k + R, hc.sy - k + R, n, n, lx, ly, ls, ls);
+    if (map.lens && map.lens.sx === hc.sx && map.lens.sy === hc.sy) ctx.drawImage(map.lens.cv, lx, ly, ls, ls);
+    else ctx.drawImage(map.base, hc.sx - k + R, hc.sy - k + R, n, n, lx, ly, ls, ls);
     ctx.imageSmoothingEnabled = true;
     ctx.strokeStyle = 'rgba(0,0,0,0.25)'; ctx.lineWidth = 1; ctx.beginPath();
     for (let i = 1; i < n; i++) { ctx.moveTo(lx + i * lc, ly); ctx.lineTo(lx + i * lc, ly + ls); ctx.moveTo(lx, ly + i * lc); ctx.lineTo(lx + ls, ly + i * lc); }

@@ -242,7 +242,7 @@
       case 'portal': {
         // swirling event-horizon discs on both faces of a gate membrane (facing ±X), spun by the 'gate' rig
         const g = new THREE.Group();
-        const mat = new THREE.MeshBasicMaterial({ map: swirlTex(), color: ex.glow, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false, side: THREE.DoubleSide });
+        const mat = sharedMat('swirl:' + ex.glow, () => new THREE.MeshBasicMaterial({ map: swirlTex(), color: ex.glow, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false, side: THREE.DoubleSide }));
         for (const s of [1, -1]) { const m = new THREE.Mesh(geo.swirl || (geo.swirl = new THREE.CircleGeometry(1, 48).rotateY(Math.PI / 2)), mat); m.position.x = 0.085 * s; m.scale.setScalar(ex.size || 1); g.add(m); }
         g.position.copy(local(ex.at)); parent.add(g); rig.swirl = g; rig.swirlMat = mat;
         break;

@@ -654,7 +654,7 @@
       box([0.19, 0.66, 0], [0.04, 0.035, 0.06], 0.01, or, P),                                   // buckle
     );
     // a draped cape: an ellipsoid shell behind the shoulders
-    h.parts.push({ name: 'cape', pivot: [0, 1, 0], mat: 'skin', res: 0.022, prims: [
+    h.parts.push({ name: 'cape', pivot: [0, 1, 0], mat: 'skin', res: 0.026, prims: [
       ell([-0.13, 0.6, 0], [0.15, 0.58, 0.33], '#ff8a2a'), ell([-0.02, 0.6, 0], [0.17, 0.66, 0.29], '#b8501a', sub({ k: 0.02 })),
       box([-0.15, 1.38, 0], [0.4, 0.34, 0.5], 0, '#b8501a', sub({ k: 0.03 })), box([-0.2, 0.1, 0], [0.4, 0.035, 0.5], 0, '#c85a10', P)] });
     for (const p of h.parts) {
