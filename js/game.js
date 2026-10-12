@@ -16,6 +16,11 @@
   let streak = 0, lastKillT = -9, combo = 0, comboT = 0, nextEventAt = 0, saveT = 0, rivalT = 0, respawnT = 0;
   const bosses = {};            // arenaKey -> entity
   let beamFx = null, bigBeam = null, dead = 0, victory = 0;
+  // Campaign "The Three Gates" (docs/CAMPAIGN.md). Runtime only, never saved: the active trial,
+  // guardian keys dropped but not yet picked up, one-shot hints.
+  const CC = C.campaign, CAMP = NX.CAMPAIGN, STAGES = CAMP.stages, ACTS = NX.KEY_ORDER;
+  let trial = null, trialSeq = 0, castleIntroShown = false;
+  const keyDrops = {}, hinted = new Set();
 
   const Game = NX.Game = {
     get G() { return G; }, P, get ents() { return ents; }, get time() { return time; }, cam,
@@ -31,23 +36,31 @@
 
   // ---------- Derived stats ----------
   const maxHp = () => C.player.maxHp + (G.level - 1) * C.player.hpPerLevel + G.bonusHp + (G.relics.cake ? 4 : 0);
-  const xpNeed = (lvl) => Math.floor(C.player.xpBase * Math.pow(C.player.xpGrowth, lvl - 1));
+  const xpNeed = (lvl) => Math.floor(C.player.xpBase * Math.pow(lvl, C.player.xpPow));
   const dmgMult = () => 1 + (G.level - 1) * C.player.dmgPerLevel;
   const isHub = (x, y) => Math.floor(x / TS / S) === 0 && Math.floor(y / TS / S) === 0;
   const sectorOf = (x, y) => ({ sx: Math.floor(x / TS / S), sy: Math.floor(y / TS / S) });
   const skey = (sx, sy) => sx + ',' + sy;
-  Game.maxHp = () => maxHp(); Game.xpNeed = () => xpNeed(G.level); Game.isHub = isHub;
+  const tileAt = (sx, sy, lx, ly) => ({ x: (sx * S + lx + 0.5) * TS, y: (sy * S + ly + 0.5) * TS });   // world px of a local tile
+  const centreOf = (sx, sy) => tileAt(sx, sy, HALF, HALF);
+  const cheb = (a, b) => Math.max(Math.abs(a.sx - b.sx), Math.abs(a.sy - b.sy));
+  const owns = (id) => G.weapons.includes(id) || G.mounts.includes(id) || !!G.relics[id];
+  const lifeCap = () => C.economy.maxExtraLives + (G.relics.amber ? 2 : 0);
+  Game.maxHp = () => maxHp(); Game.xpNeed = () => xpNeed(G.level); Game.isHub = isHub; Game.extraLifeCap = () => lifeCap();
 
   // ---------- Movement & collision ----------
   function moveCircle(e, dx, dy, mode) {
-    // mode: 'walk' | 'fly' (ignores water) | 'ghost' (ignores everything but the void)
+    // mode: 'walk' | 'fly' (ignores water) | 'ghost' (ignores everything but the void and the IOI forcefield)
+    // FORCE is in NX.SOLID, so W.blocked already stops it for walk and fly.
     const r = Math.min(e.r, 14) * 0.85;
     const steps = Math.max(1, Math.ceil(Math.max(Math.abs(dx), Math.abs(dy)) / 8));
     const sx = dx / steps, sy = dy / steps;
     let hx = false, hy = false;
-    const blocked = (x, y) => mode === 'ghost'
-      ? W.tile(Math.floor(x / TS), Math.floor(y / TS)) === T.VOID
-      : W.blocked(x, y, r, mode === 'fly');
+    const blocked = (x, y) => {
+      if (mode !== 'ghost') return W.blocked(x, y, r, mode === 'fly');
+      const t = W.tile(Math.floor(x / TS), Math.floor(y / TS));
+      return t === T.VOID || t === T.FORCE;
+    };
     for (let i = 0; i < steps; i++) {
       if (sx && !hx) { if (blocked(e.x + sx, e.y)) hx = true; else e.x += sx; }
       if (sy && !hy) { if (blocked(e.x, e.y + sy)) hy = true; else e.y += sy; }
@@ -87,13 +100,13 @@
   Game.newGame = (name, color) => {
     const gate = W.gateWorld(0, 0);
     G = {
-      v: 1, name: name || 'Gunter', color: color || '#4a9cff',
+      v: 2, name: name || 'Gunter', color: color || '#4a9cff',
       x: gate.x, y: gate.y + TS * 1.5,
       hp: C.player.maxHp, level: 1, xp: 0, bonusHp: 0, coins: C.economy.startCoins, score: 0,
       weapons: ['pixelsword'], weapon: 'pixelsword',
       items: { pokeballs: 3, grenades: 1, extralife: 0, masterballs: 0 },
       mounts: [], mount: null, relics: {},
-      keys: {}, egg: false, eggRank: null, clues: false,
+      keys: {}, egg: false, eggRank: null, quest: defaultQuest(),
       raids: {}, revealed: {}, discovered: ['0,0'], opened: [], mods: {}, pets: [],
       playTime: 0, sessionId: null, rivals: {}, lastPromptAt: -999, regenAt: -9999, walkmanAt: -9999, snapAt: -9999,
       kills: 0, deaths: 0, bestStreak: 0, intro: false,
@@ -102,14 +115,41 @@
     start();
   };
 
+  // v2 = the Three Gates campaign. v1 saves (the old 3-key hunt) migrate: keep level, gear, relics,
+  // raids and pets; restart the quest at the hub; drop tile mods around the new campaign sites.
   Game.load = () => {
     const s = NX.store.get('nx_save', null);
-    if (!s || s.v !== 1) return false;
+    if (!s || (s.v !== 1 && s.v !== 2)) return false;
+    const migrated = s.v === 1;
+    if (migrated) {
+      W.init();   // World.quest must exist to know which sectors changed
+      s.quest = defaultQuest(); s.keys = {}; s.egg = false; s.eggRank = null; s.rivals = {};
+      delete s.eggAt; delete s.clues;
+      const g = W.gateWorld(0, 0);
+      s.x = g.x; s.y = g.y + TS * 1.5;
+      const mods = {};
+      for (const k of Object.keys(s.mods || {})) { const [sx, sy] = k.split(',').map(Number); if (!W.nearSite(sx, sy)) mods[k] = s.mods[k]; }
+      s.mods = mods;
+      s.v = 2;
+    }
+    sanitizeQuest(s);
     G = s;
     if (!tel().resume(G.sessionId)) G.sessionId = tel().begin({ avatar: G.name, resumed: true });
     start();
+    if (migrated) { Game.save(); NX.UI.toast('Campaign updated — the Curator has new riddles', '#ffd23f', 6); }
     return true;
   };
+  // Guard v2 loads: unknown stage -> intro, missing fields -> defaults.
+  function sanitizeQuest(s) {
+    const q = s.quest && typeof s.quest === 'object' ? s.quest : {};
+    s.quest = Object.assign(defaultQuest(), q);
+    if (!STAGES.includes(s.quest.stage)) s.quest.stage = 'intro';
+    const g = Array.isArray(s.quest.generators) ? s.quest.generators : [];
+    s.quest.generators = [0, 1, 2].map((i) => !!g[i]);
+    if (!s.quest.ms || typeof s.quest.ms !== 'object') s.quest.ms = {};
+    s.quest.castle = !!s.quest.castle; s.quest.outro = !!s.quest.outro; s.quest.first = !!s.quest.first;
+    s.keys = s.keys || {}; s.rivals = s.rivals || {};
+  }
   Game.hasSave = () => !!NX.store.get('nx_save', null);
   Game.wipe = () => NX.store.del('nx_save');
 
@@ -122,6 +162,7 @@
     NX.store.set('nx_save', G);
     const t = tel();
     t.set('playTimeSec', Math.round(G.playTime)); t.set('level', G.level); t.set('keys', Object.keys(G.keys).length);
+    t.set('stage', G.quest.stage); t.set('stageIdx', stageIdx(G.quest.stage));
     t.set('egg', G.egg); t.set('relics', Object.keys(G.relics)); t.set('weapons', G.weapons.slice()); t.set('mounts', G.mounts.slice());
     t.set('raidsDefeated', Object.keys(G.raids)); t.set('pets', G.pets.length); t.set('score', G.score);
     t.flush();
@@ -130,11 +171,14 @@
   let discovered = new Set(), opened = new Set();
   function start() {
     W.init();
+    W.forceDown = G.quest.generators.every(Boolean);   // the forcefield is derived state, never a tile mod
     W.importMods(G.mods);
     discovered = new Set(G.discovered); opened = new Set(G.opened);
     ents = []; shots = []; fx = []; haz = [];
     active.clear();
     for (const k of Object.keys(bosses)) delete bosses[k];
+    trial = null; castleIntroShown = false; hinted.clear();
+    for (const k of Object.keys(keyDrops)) delete keyDrops[k];
     Object.assign(P, {
       x: G.x, y: G.y, r: 11, vx: 0, vy: 0, face: 1, walk: 0, aim: -Math.PI / 2, moveAng: -Math.PI / 2, cd: 0,
       iframes: 2, star: 0, power: 0, dash: null, charge: 0, slow: 0, bulletTime: 0, overshield: G.relics.overshield ? 4 : 0, osT: 0, regenT: 0,
@@ -147,6 +191,8 @@
     time = 0;
     updateSectors(true);
     spawnPets();
+    tel().set('campaign', Game.campaignInfo());
+    checkStage();
   }
 
   // ---------- Sectors ----------
@@ -162,14 +208,24 @@
     }
   }
   function enterSector(sx, sy) {
-    const k = skey(sx, sy), theme = W.themeOf(sx, sy), th = NX.THEMES[theme];
+    const k = skey(sx, sy), theme = W.themeOf(sx, sy), th = NX.THEMES[theme], site = W.siteAt(sx, sy);
     if (!discovered.has(k)) { discovered.add(k); tel().add('sectorsDiscovered'); G.score += 25; }
     const d = W.dist(sx, sy);
     tel().max('maxDist', d);
     if (theme !== curTheme) {
       curTheme = theme;
-      NX.UI.banner(th.name.toUpperCase(), `${th.fandom} · sector ${sx}, ${sy}`, th.map, 'region');
+      // Until the Crystal Gate opens, the castle is just a dark ruin behind a forcefield.
+      if (theme === 'castle' && !isDone('crystal_gate')) NX.UI.banner('A DARK RUIN', `Something orange hums around it · sector ${sx}, ${sy}`, '#ff9b3d', 'region');
+      else NX.UI.banner(th.name.toUpperCase(), `${th.fandom} · sector ${sx}, ${sy}`, th.map, 'region');
       tel().tally('themesEntered', theme);
+    }
+    if (!site) return;
+    if (site.type === 'castle' && !castleIntroShown && stageIdx(stageId()) >= stageIdx('castle_gens') && !G.quest.castle) {
+      castleIntroShown = true;
+      NX.UI.say('The Curator ◈ transmission', CAMP.castle.intro);
+    }
+    if (site.type === 'key' && site.act === 'jade' && stageId() === 'jade_key' && !canCross()) {
+      NX.UI.toast('A data-moat rings the island. Cross it with the Nimbus 2000 (Wizarding Grounds chest), the Elytra (Ender Dragon raid) or the Portal Gun (Aperture cabinet chest).', '#3fcf8e', 9);
     }
   }
   function activate(k) {
@@ -179,6 +235,7 @@
   }
   function deactivate(k) {
     active.delete(k);
+    hinted.delete(k);
     ents = ents.filter((e) => e.sector !== k);
     for (const a of Object.keys(bosses)) if (bosses[a] && bosses[a].sector === k) delete bosses[a];
   }
@@ -198,14 +255,17 @@
     const theme = W.themeOf(sx, sy), th = NX.THEMES[theme], d = W.dist(sx, sy);
     const rnd = NX.rng(NX.hash(sx, sy, 555));
     if (theme === 'hub') return spawnHub(k);
-    const special = W.keyAt(sx, sy) || W.raidAt(sx, sy);
+    // Campaign sites: cabinets, gatedoors, clue chests, key drops, pylons, castle extras (before the enemy cap).
+    const site = W.siteAt(sx, sy);
+    if (site) spawnSite(site, sx, sy, k);
+    const special = site || W.raidAt(sx, sy), fortress = site && (site.type === 'castle' || site.type === 'generator');
     // Chest (deterministic, remembered once opened)
     if (!special && rnd() < C.world.chestChance) {
       const p = sectorSpot(sx, sy, rnd);
       if (p) { const id = 'c' + k; ents.push({ kind: 'chest', id: nid++, cid: id, x: p.x, y: p.y, r: 14, open: opened.has(id), theme, sector: k, tier: rnd() < 0.12 ? 'gold' : 'normal', d }); }
     }
-    // A wandering gunter with tips and rumours
-    if (rnd() < C.world.npcChance) {
+    // A wandering gunter with tips and rumours (none at IOI's siege)
+    if (rnd() < C.world.npcChance && !fortress) {
       const p = sectorSpot(sx, sy, rnd, 0);
       if (p) ents.push({ kind: 'npc', id: nid++, role: 'gunter', look: 'gunter', tint: `hsl(${Math.floor(rnd() * 360)},70%,55%)`, x: p.x, y: p.y, r: 12, sector: k, theme, seed: Math.floor(rnd() * 1e6) });
     }
@@ -244,10 +304,11 @@
   }
 
   function makeEnemy(type, x, y, sector, d) {
-    const def = NX.ENEMIES[type];
-    const f = def.boss ? 1 + d * 0.05 : 1 + d * C.world.difficultyPerSector;
+    const def = NX.ENEMIES[type], cw = C.world;
+    // f scales HP, XP and coins; damage has its own (gentler) per-sector growth.
+    const f = def.boss ? 1 + d * cw.bossHpPerSector : 1 + d * cw.difficultyPerSector;
     const hp = Math.max(1, Math.round(def.hp * f * C.combat.enemyHpMult));
-    const dmg = Math.max(0.5, Math.round(def.dmg * (1 + d * (def.boss ? 0.03 : 0.05)) * C.combat.enemyDmgMult * 2) / 2);
+    const dmg = Math.max(0.5, Math.round(def.dmg * (1 + d * (def.boss ? cw.bossDmgPerSector : cw.dmgPerSector)) * C.combat.enemyDmgMult * 2) / 2);
     return {
       kind: 'enemy', id: nid++, type, def, x, y, r: def.r || 13, hp, maxHp: hp, dmg, lvl: f, speed: def.speed,
       t: Math.random() * 5, cd: (def.fire || 2) * rand(0.6, 1.3), state: 'idle', st: 0, stun: 0, root: 0, flash: 0, face: 1, walk: 0,
@@ -517,7 +578,7 @@
       dropItem(cx, cy + 24, r < 0.08 ? 'mushroom' : r < 0.14 ? 'star' : r < 0.2 && !G.weapons.includes('fireflower') ? 'weapon' : 'coin', r < 0.2 ? 1 : 3, curKey(), { weapon: 'fireflower' });
       return true;
     }
-    if (mine && (t === T.WALL || t === T.USED || t === T.PROP)) {
+    if (mine && (t === T.WALL || t === T.USED || t === T.PROP)) {   // never FORCE, WATER or ALTAR
       W.setTile(tx, ty, T.FLOOR); burst(cx, cy, '#888', 12, 140); Sound.play('break'); tel().add('blocksMined');
       return true;
     }
@@ -605,6 +666,11 @@
     if (e.dead || e.capturing) return;
     const d = e.def;
     if (d.ai === 'angel' && e.observed && !o.silent) { text(e.x, e.y - 20, 'stone...', '#aaa', 10, 0.4); dmg *= 0.25; }
+    // Crystal guardian: Blinky XL shrugs off anything that isn't powered up by a big dot.
+    if (e.type === 'bigghost' && e.keyId && !(P.power > 0)) {
+      dmg *= 0.25;
+      if (!e.npT || e.npT < time) { e.npT = time + 0.9; text(e.x, e.y - e.r - 22, 'NEED POWER', '#ffd23f', 13, 0.8); }
+    }
     if (d.adapt && o.weapon) {
       e.hits[o.weapon] = (e.hits[o.weapon] || 0) + 1;
       if (!e.adapted && e.hits[o.weapon] >= d.adapt * (o.silent ? 30 : 1)) { e.adapted = o.weapon; text(e.x, e.y - 24, 'ADAPTED', '#5fff5f', 12); }
@@ -640,7 +706,8 @@
     e.dead = true;
     const d = e.def;
     G.kills++; tel().add('kills'); tel().tally('kills', e.type);
-    const xp = Math.round(d.xp * e.lvl * (G.relics.gizmo && d.tag === 'ghost' ? 3 : 1));
+    // Trial foes (echoes included) give reduced XP; the trial pays a bonus on a win instead.
+    const xp = Math.round(d.xp * e.lvl * (G.relics.gizmo && d.tag === 'ghost' ? 3 : 1) * (e.trialId != null ? CC.trialXpMult : 1));
     gainXp(xp);
     G.score += xp * 10;
     burst(e.x, e.y, d.color || '#ffb060', d.boss ? 60 : 16, d.boss ? 300 : 170, d.boss ? 5 : 3);
@@ -661,26 +728,31 @@
       else if (r < 0.16) dropItem(e.x, e.y, 'grenade', 1, e.sector);
     }
     if (d.boss) bossDefeated(e);
+    if (e.generatorIndex != null) pylonDown(e);
   }
 
   function bossDefeated(e) {
     shake(26); NX.UI.flash('#ffffff', 0.4);
     G.score += 5000;
-    tel().add('bossKills'); tel().tally('bossesDefeated', e.type); tel().event('boss', { boss: e.type, level: G.level });
-    NX.UI.banner(`${e.def.name.toUpperCase()} DEFEATED`, e.def.fandom, '#ffd23f');
+    const tag = e.echo ? 'echo:' + e.type : e.type;   // echoes tally separately so boss-HP tuning skips them
+    tel().add('bossKills'); tel().tally('bossesDefeated', tag); tel().event('boss', { boss: tag, level: G.level });
+    NX.UI.banner(`${e.echo ? 'ECHO OF ' : ''}${e.def.name.toUpperCase()} DEFEATED`, e.echo ? 'Gate Trial' : e.def.fandom, '#ffd23f');
     for (let i = 0; i < 6; i++) setTimeout(() => { if (G) { burst(e.x + rand(-60, 60), e.y + rand(-60, 60), '#fff2a0', 30, 260, 4); Sound.play('boom'); } }, i * 160);
-    if (e.keyId) dropItem(e.x, e.y, 'key', 1, e.sector, { key: e.keyId });
+    // Drops land on a reachable tile: ghosts die inside maze walls, Ganon next to his moat.
+    const o = W.findOpen(Math.floor(e.x / TS), Math.floor(e.y / TS)), ox = (o.tx + 0.5) * TS, oy = (o.ty + 0.5) * TS;
+    if (e.keyId) { keyDrops[e.keyId] = { x: ox, y: oy }; dropItem(ox, oy, 'key', 1, e.sector, { key: e.keyId, vx: 0, vy: 0 }); }
     if (e.raidTheme) {
       const rw = NX.RAIDS[e.raidTheme].reward;
       G.raids[e.raidTheme] = true;
-      if (rw.relic) dropItem(e.x - 20, e.y, 'relic', 1, e.sector, { relic: rw.relic });
-      if (rw.mount) dropItem(e.x + 20, e.y, 'mount', 1, e.sector, { mount: rw.mount });
+      if (rw.relic) dropItem(ox - (rw.mount ? 10 : 0), oy, 'relic', 1, e.sector, { relic: rw.relic, vx: 0, vy: 0 });
+      if (rw.mount) dropItem(ox + (rw.relic ? 10 : 0), oy, 'mount', 1, e.sector, { mount: rw.mount, vx: 0, vy: 0 });
     }
-    if (e.type === 'godzilla' && !G.weapons.includes('atomicbreath')) dropItem(e.x, e.y + 20, 'weapon', 1, e.sector, { weapon: 'atomicbreath' });
+    if (e.type === 'godzilla' && !G.weapons.includes('atomicbreath')) dropItem(ox, oy, 'weapon', 1, e.sector, { weapon: 'atomicbreath', vx: 0, vy: 0 });
     dropItem(e.x, e.y + 30, 'heart', 1, e.sector); dropItem(e.x + 15, e.y + 30, 'heart', 1, e.sector);
     for (const k of Object.keys(bosses)) if (bosses[k] === e) delete bosses[k];
     // minions flee
     for (const m of ents) if (m.kind === 'enemy' && m.owner === e.id && !m.dead) { burst(m.x, m.y, '#aaa', 8); m.dead = true; }
+    if (e.castleBoss) { G.quest.castle = true; spawnCastleExtras(e.sector); checkStage(); }
     NX.UI.save();
   }
 
@@ -720,6 +792,7 @@
   }
 
   function die(src) {
+    if (trial) failTrial();
     dead = 3.2;
     G.deaths++;
     const { sx, sy } = sectorOf(P.x, P.y);
@@ -768,7 +841,9 @@
       case 'grenade': G.items.grenades += p.value; Sound.play('pickup'); NX.UI.toast('+1 Holy Hand Grenade', '#e8c040'); break;
       case 'mushroom': G.bonusHp += 2; heal(2); Sound.play('levelup'); NX.UI.toast('Super Mushroom! +1 heart container', '#ff4a4a'); break;
       case 'star': P.star = 8; Sound.play('power'); NX.UI.toast('SUPER STAR! Invincible!', '#ffe23a'); break;
-      case 'extralife': G.items.extralife++; Sound.play('pickup'); NX.UI.toast('Extra Life Quarter', '#c8ccd2'); break;
+      case 'extralife':
+        if (G.items.extralife >= lifeCap()) { G.coins += C.economy.extraLifeOverflowCoins; Sound.play('coin'); NX.UI.toast(`Pockets full of quarters · +${C.economy.extraLifeOverflowCoins} coins`, '#ffd23f'); break; }
+        G.items.extralife++; Sound.play('pickup'); NX.UI.toast('Extra Life Quarter', '#c8ccd2'); break;
       case 'masterball': G.items.masterballs++; Sound.play('pickup'); break;
       case 'weapon': {
         const w = NX.WEAPONS[p.weapon];
@@ -790,7 +865,7 @@
       case 'relic': {
         const r = NX.RELICS[p.relic];
         G.relics[p.relic] = true;
-        if (p.relic === 'amber') G.items.extralife += 2;
+        if (p.relic === 'amber') G.items.extralife = Math.max(G.items.extralife, Math.min(lifeCap(), G.items.extralife + 2));
         if (p.relic === 'masterball') G.items.masterballs += 3;
         if (p.relic === 'overshield') P.overshield = 4;
         if (p.relic === 'cake') G.hp = maxHp();
@@ -800,25 +875,42 @@
         break;
       }
       case 'key': {
-        const k = NX.KEYS[p.key];
-        G.keys[p.key] = true;
-        tel().event('key', { key: p.key, level: G.level }); tel().set('keyAt_' + p.key, Math.round(G.playTime));
-        NX.UI.banner(`THE ${k.name.toUpperCase()}`, Object.keys(G.keys).length === 3 ? 'All three keys! Return to the altar at Nexus Prime.' : `${Object.keys(G.keys).length} of 3 keys. The Sixers just noticed you.`, k.color);
+        // The only way a key stage completes (never at the guardian's death).
+        const act = p.key, k = NX.KEYS[act];
+        G.keys[act] = true; delete keyDrops[act];
+        tel().event('key', { key: act, level: G.level }); tel().set('keyAt_' + act, Math.round(G.playTime));
+        NX.UI.banner(`THE ${k.name.toUpperCase()}`, `${ACTS.filter((a) => G.keys[a]).length} of 3 keys · the ${actWord(act)} Gate awaits`, k.color);
         Sound.play('key'); shake(12);
+        advance(act + '_key');
+        NX.UI.say('The Curator ◈ transmission', [Game.fmtQuest(CAMP.acts[act].gateIntro, W.quest[act].gate)]);
         NX.UI.save();
-        setTimeout(() => NX.UI.debrief('key'), 3500);
+        break;
+      }
+      case 'egg': {
+        // The old altar victory, now at Anorak's altar.
+        if (G.egg) break;
+        G.egg = true;
+        G.eggRank = eggRank();
+        tel().event('egg', { time: Math.round(G.playTime), rank: G.eggRank, level: G.level }); tel().set('eggAt', Math.round(G.playTime)); tel().set('eggRank', G.eggRank);
+        G.score += 100000;
+        victory = 8;
+        Sound.play('egg'); NX.UI.flash('#ffffff', 1);
+        NX.UI.banner('THE EGG IS YOURS', `${ordinal(G.eggRank)} through the Crystal Gate — first to the Egg`, '#fff3c4');
+        Game.save();
+        advance('egg');
         break;
       }
     }
   }
 
   function openChest(c) {
+    const again = opened.has(c.cid);   // a clue chest re-closes while its theme loot is still missing: loot only
     c.open = true; opened.add(c.cid);
-    tel().add('chests'); Sound.play('chest');
+    Sound.play('chest');
+    if (!again) tel().add('chests');
     const th = NX.THEMES[c.theme], f = 1 + c.d * 0.1, gold = c.tier === 'gold';
     burst(c.x, c.y - 8, gold ? '#ffd23f' : '#ffe9a0', 20, 140);
-    const owned = (id) => G.weapons.includes(id) || G.mounts.includes(id) || G.relics[id];
-    const missing = (th.loot || []).filter((id) => id === 'pokeballs' || !owned(id));
+    const missing = (th.loot || []).filter((id) => id === 'pokeballs' || !owns(id));
     if (missing.length && (gold || Math.random() < 0.5)) {
       const id = pick(missing);
       if (id === 'pokeballs') dropItem(c.x, c.y, 'pokeballs', 3, c.sector);
@@ -826,6 +918,7 @@
       else if (NX.MOUNTS[id]) dropItem(c.x, c.y, 'mount', 1, c.sector, { mount: id });
       else if (NX.RELICS[id]) dropItem(c.x, c.y, 'relic', 1, c.sector, { relic: id });
     }
+    if (again) return;
     const coins = Math.round(randi(8, 20) * f * C.economy.coinMult * (gold ? 3 : 1));
     for (let i = 0; i < 4; i++) dropItem(c.x, c.y, 'coin', Math.ceil(coins / 4), c.sector);
     const r = Math.random();
@@ -837,49 +930,73 @@
     else dropItem(c.x, c.y, 'extralife', 1, c.sector);
   }
 
-  // ---------- Interactions (NPCs, altar) ----------
-  function nearestNpc(maxD = 56) {
+  // ---------- Interactions (NPCs, campaign sites, altar) ----------
+  // Sites are prompted even when locked: touch players only get a TALK button when prompt() is non-null.
+  function nearestInteractable(maxD = 56) {
     let best = null, bd = maxD;
-    for (const e of ents) if (e.kind === 'npc') { const d = dist(e, P); if (d < bd) { bd = d; best = e; } }
+    for (const e of ents) if ((e.kind === 'npc' || e.kind === 'site') && !e.dead) { const d = dist(e, P); if (d < bd) { bd = d; best = e; } }
     return best;
   }
+  const NPC_VERB = { curator: 'Talk', shop: 'Shop', garage: 'Garage', score: 'Scoreboard', gunter: 'Talk', anorak: 'Talk' };
   Game.prompt = () => {
-    if (dead || victory) return null;
-    const n = nearestNpc();
-    if (n) return { x: n.x, y: n.y - 30, text: { curator: 'Talk', shop: 'Shop', garage: 'Garage', score: 'Scoreboard', gunter: 'Talk' }[n.role] };
+    if (!G || dead || victory) return null;
+    const n = nearestInteractable();
+    if (n) return { x: n.x, y: n.y - 30, text: n.kind === 'site' ? (n.role === 'cabinet' ? 'Play' : 'Gate') : NPC_VERB[n.role] || 'Talk' };
     const altar = { x: (HALF + 0.5) * TS, y: (HALF + 0.5) * TS };
     if (isHub(P.x, P.y) && dist(P, altar) < 60) return { x: altar.x, y: altar.y - 30, text: G.egg ? 'The Egg' : 'Altar' };
     return null;
   };
   function interact() {
-    const n = nearestNpc();
+    const n = nearestInteractable();
+    if (n && n.kind === 'site') { if (n.role === 'cabinet') cabinetInteract(n); else gateInteract(n); return; }
     if (n) { NX.UI.talk(n); return; }
     const altar = { x: (HALF + 0.5) * TS, y: (HALF + 0.5) * TS };
     if (isHub(P.x, P.y) && dist(P, altar) < 60) altarInteract();
   }
+  // The hub altar only reports progress now; the Egg waits at Anorak's altar.
   function altarInteract() {
-    const have = NX.KEY_ORDER.filter((k) => G.keys[k]);
-    if (G.egg) { NX.UI.say('The Altar', ['The Egg glows warmly. You already won — but the multiverse is still out there.']); return; }
-    if (have.length < 3) {
-      NX.UI.say('The Altar', [`Three keyholes: copper, jade, crystal. You hold ${have.length}.`, 'Talk to the Curator for the riddles. The map (M) shows where to look.']);
-      return;
-    }
-    G.egg = true; G.eggAt = G.playTime;
-    const rivalsBefore = NX.RIVALS.filter((r) => G.playTime / 60 >= r.at[3] / C.rivals.pace).length;
-    G.eggRank = rivalsBefore + 1;
-    tel().event('egg', { time: Math.round(G.playTime), rank: G.eggRank, level: G.level }); tel().set('eggAt', Math.round(G.playTime)); tel().set('eggRank', G.eggRank);
-    G.score += 100000;
-    victory = 8;
-    Sound.play('egg'); NX.UI.flash('#ffffff', 1);
-    NX.UI.save();
+    if (G.egg) { NX.UI.say('The Altar', ['The Egg is yours.']); return; }
+    const keys = ACTS.filter((a) => G.keys[a]).length, gates = ACTS.filter((a) => isDone(a + '_gate')).length;
+    NX.UI.say('The Altar', [`Keys ${keys}/3 · Gates ${gates}/3`, `Next: ${Game.objective().text.replace(/^▶\s*/, '')}`]);
   }
   Game.altarInteract = altarInteract;
 
+  function cabinetInteract(e) {
+    const id = `${e.act}_clue_${e.index}`;
+    if (stageId() === id && !trial) { startTrial('clue', e.act, e.index); return; }
+    if (trial) { NX.UI.toast('Finish your current trial first.', '#ff6a6a'); return; }
+    NX.UI.say('Arcade Cabinet', [isDone(id) ? 'Already solved — your initials are on the high-score table.' : 'This cabinet is dark — solve the earlier cabinets first.']);
+  }
+  function gateInteract(e) {
+    const id = e.act + '_gate', who = `The ${actWord(e.act)} Gate`;
+    if (stageId() === id) {
+      if (trial) { NX.UI.toast('Finish your current trial first.', '#ff6a6a'); return; }
+      if (e.act !== 'crystal') { startTrial('gate', e.act, null); return; }
+      if (riddleBlocked()) NX.UI.say(who, ['Clear the Sixers first.']);
+      else NX.UI.riddle();   // -> Game.answerRiddle(i)
+      return;
+    }
+    NX.UI.say(who, [isDone(id) ? 'The gate stands open.' : `The ${NX.KEYS[e.act].name} fits here — find it first.`]);
+  }
+
+  // Prices scale with the act you're in, so the shop stays relevant at d38.
+  function actDist() {
+    const id = stageId();
+    if (stageIdx(id) >= stageIdx('castle_gens')) return CC.castleDist;
+    return CC.keyDist[parseStage(id).act || 'copper'];
+  }
+  Game.price = (id) => {
+    const base = C.economy.prices[id];
+    if (base == null || !G || !(C.economy.scaledPrices || []).includes(id)) return base;
+    return Math.round(base * (1 + C.world.difficultyPerSector * actDist()));
+  };
+
   Game.buy = (id) => {
-    const price = C.economy.prices[id];
-    if (G.coins < price) return 'Not enough coins.';
+    const price = Game.price(id);
     if (id === 'delorean' && G.mounts.includes('delorean')) return 'You already own it.';
     if (id === 'blaster' && G.weapons.includes('blaster')) return 'You already own it.';
+    if (id === 'extralife' && G.items.extralife >= lifeCap()) return 'Your pockets are full of quarters.';
+    if (G.coins < price) return 'Not enough coins.';
     G.coins -= price;
     tel().tally('bought', id);
     switch (id) {
@@ -891,7 +1008,7 @@
       case 'delorean': G.mounts.push('delorean'); NX.UI.banner('NEW RIDE: DELOREAN', 'Press V to drive. Hit 88 mph.', '#c9ced6'); break;
     }
     Sound.play('coin');
-    return null;
+    return undefined;
   };
 
   Game.revealRumor = () => {
@@ -903,13 +1020,15 @@
     return { theme: th, boss: NX.ENEMIES[r.boss].name, sx: r.sx, sy: r.sy };
   };
 
-  Game.warp = (sx, sy) => {
+  // Map warps and Mother Box boom tubes. Warping out abandons a running trial.
+  Game.warp = (sx, sy) => warpTo(sx, sy, false);
+  function warpTo(sx, sy, force) {
     const k = skey(sx, sy);
-    if (!W.inBounds(sx, sy)) return false;
-    if (!discovered.has(k) && !G.relics.motherbox) return false;
-    const g = W.gateWorld(sx, sy);
-    P.x = g.x; P.y = g.y + TS * 2;
-    const o = W.findOpen(Math.floor(P.x / TS), Math.floor(P.y / TS));
+    if (!G || !W.inBounds(sx, sy)) return false;
+    if (!force && !discovered.has(k) && !G.relics.motherbox) return false;
+    if (trial) failTrial();
+    const lp = W.landingPos(sx, sy);   // south road outside the moat/castle rings, else just below the gate
+    const o = W.findOpen(Math.floor(lp.x / TS), Math.floor(lp.y / TS));
     P.x = (o.tx + 0.5) * TS; P.y = (o.ty + 0.5) * TS;
     shots = []; haz = [];
     cam.x = P.x; cam.y = P.y;
@@ -918,9 +1037,473 @@
     Sound.play('warp'); NX.UI.flash('#c9c3ff', 0.5);
     tel().add('warps');
     return true;
-  };
+  }
   Game.isDiscovered = (sx, sy) => discovered.has(skey(sx, sy));
   Game.discoveredCount = () => discovered.size;
+
+  // =====================================================================================
+  // Campaign "The Three Gates" — docs/CAMPAIGN.md §6. Stage, cabinet, gate and trial states
+  // are always DERIVED from G.quest.stage; there are no stored clue/gate/trial fields.
+  // =====================================================================================
+
+  // ---------- Stage machine (§6.1) ----------
+  const defaultQuest = () => ({ stage: 'intro', generators: [false, false, false], castle: false, outro: false, ms: {}, first: false });
+  const stageId = () => G.quest.stage;
+  const stageIdx = (id) => STAGES.indexOf(id);
+  const isDone = (id) => stageIdx(stageId()) > stageIdx(id);
+  // 'jade_clue_1' -> { act: 'jade', kind: 'clue', index: 1 } · 'castle_gens' -> { act: null, kind: 'castle_gens', index: null }
+  const parseStage = (id) => {
+    const m = /^(copper|jade|crystal)_(clue|key|gate)(?:_(\d))?$/.exec(id || '');
+    return m ? { act: m[1], kind: m[2], index: m[3] != null ? +m[3] : null } : { act: null, kind: id, index: null };
+  };
+  const actWord = (act) => act[0].toUpperCase() + act.slice(1);
+  const canCross = () => G.mounts.includes('nimbus') || G.mounts.includes('elytra') || G.weapons.includes('portalgun');
+  const ordinal = (n) => n + (n % 100 >= 11 && n % 100 <= 13 ? 'th' : ['th', 'st', 'nd', 'rd'][n % 10] || 'th');
+  Game.stageId = () => (G ? stageId() : null);
+  Game.stageIdx = stageIdx;
+  Game.isDone = (id) => !!G && isDone(id);
+
+  // The single mutator. Does nothing unless `id` is the current stage.
+  function advance(id) {
+    if (!G || stageId() !== id) return;
+    const t = Math.round(G.playTime);
+    G.quest.ms[id] = t;
+    tel().event('milestone', { id, level: G.level }); tel().set('ms_' + id, t); tel().set('lv_' + id, G.level);
+    const next = STAGES[stageIdx(id) + 1] || 'done';
+    G.quest.stage = next;
+    if (CAMP.race.includes(id)) scoreboardCheck();
+    onStageEnter(next, id);
+    checkStage();
+    Game.save();
+  }
+  // Idempotent: after every advance, pylon kill, castle-boss death and at the end of start().
+  function checkStage() {
+    if (!G) return;
+    const id = stageId(), st = parseStage(id);
+    if (id === 'castle_gens' && G.quest.generators.every(Boolean)) advance(id);
+    else if (id === 'castle' && G.quest.castle) advance(id);
+    else if (st.kind === 'key' && G.keys[st.act]) advance(id);
+  }
+  function onStageEnter(id, prev) {
+    const st = parseStage(id), was = parseStage(prev);
+    if (was.kind === 'gate') {
+      // A gate just opened: its line, then the next act's intro (or the castle reveal), then the debrief.
+      const A = CAMP.acts[was.act];
+      (async () => {
+        await NX.UI.say(`The ${actWord(was.act)} Gate`, [Game.fmtQuest(A.gateDone)]);
+        if (!G) return;
+        if (st.act) {
+          await NX.UI.say('The Curator ◈ transmission', CAMP.acts[st.act].intro.map((l) => Game.fmtQuest(l)));
+          if (G) NX.UI.debrief('gate_' + was.act);
+        } else {
+          const rv = CAMP.castle.reveal;
+          NX.UI.banner(rv.title, Game.fmtQuest(rv.sub, W.quest.castle), '#ff2a4a');
+          Sound.play('boss'); shake(16);
+          setTimeout(() => G && NX.UI.debrief('gate_' + was.act), 4000);
+        }
+      })();
+    }
+    if (id === 'castle_gens') for (const k of active) { const [sx, sy] = k.split(',').map(Number); spawnPylon(sx, sy, k); }
+    if (id === 'egg') NX.UI.toast('Anorak is waiting at the altar.', '#ff2a4a', 5);
+    // Under-levelled for what comes next? Point at a raid boss for XP.
+    const o = Game.objective();
+    if (o.rec != null && G.level < o.rec - CC.recSlack) {
+      const r = Game.revealRumor();
+      if (r) NX.UI.toast(`Word is ${r.boss} is near ${r.sx}, ${r.sy} — good XP.`, '#ffd23f', 6);
+    }
+  }
+  Game.questEvent = (name) => {
+    if (!G) return;
+    if (name === 'curator') advance('intro');
+    else if (name === 'outro') {
+      G.quest.outro = true;
+      const c = W.quest.castle;
+      spawnCastleExtras(skey(c.sx, c.sy));
+      Game.save();
+    }
+  };
+
+  // ---------- Site entities (§6.3, §6.6) ----------
+  // { kind: 'site', role: 'cabinet'|'gatedoor', act, index, sector }. Done/open states are derived.
+  function spawnSite(site, sx, sy, k) {
+    const has = (f) => ents.some((e) => !e.dead && e.sector === k && f(e));
+    if (site.type === 'clue') {
+      if (!has((e) => e.kind === 'site')) ents.push(Object.assign({ kind: 'site', id: nid++, role: 'cabinet', act: site.act, index: site.index, r: 16, sector: k }, tileAt(sx, sy, HALF, HALF - 2)));
+      if (isDone(`${site.act}_clue_${site.index}`)) addClueChest(site, sx, sy, k);
+    } else if (site.type === 'gate') {
+      if (!has((e) => e.kind === 'site')) ents.push(Object.assign({ kind: 'site', id: nid++, role: 'gatedoor', act: site.act, index: null, r: 16, sector: k }, tileAt(sx, sy, HALF, HALF - 4)));
+    } else if (site.type === 'key') {
+      // A guardian's key that was dropped but not picked up (this session) waits where it fell.
+      const kd = keyDrops[site.act];
+      if (kd && !G.keys[site.act] && !has((e) => e.kind === 'pickup' && e.item === 'key')) dropItem(kd.x, kd.y, 'key', 1, k, { key: site.act, vx: 0, vy: 0 });
+    } else if (site.type === 'generator') spawnPylon(sx, sy, k);
+    else if (site.type === 'castle') spawnCastleExtras(k);
+  }
+  // Won clue reward: a gold chest. It re-closes while its theme loot is still missing, so a Portal Gun
+  // that was dropped and left behind can never softlock the jade moat.
+  function addClueChest(site, sx, sy, k) {
+    const cid = `clue:${site.act}:${site.index}`;
+    if (ents.some((e) => e.kind === 'chest' && e.cid === cid)) return;
+    const theme = W.themeOf(sx, sy), missing = (NX.THEMES[theme].loot || []).some((id) => id !== 'pokeballs' && !owns(id));
+    ents.push(Object.assign({ kind: 'chest', id: nid++, cid, r: 14, open: opened.has(cid) && !missing, theme, sector: k, tier: 'gold', d: W.dist(sx, sy) }, tileAt(sx, sy, HALF + 2, HALF - 2)));
+  }
+  // IOI shield pylons, from castle_gens on, until destroyed. No 300 px guard: they're stationary objectives.
+  function spawnPylon(sx, sy, k) {
+    const site = W.siteAt(sx, sy);
+    if (!site || site.type !== 'generator' || stageIdx(stageId()) < stageIdx('castle_gens')) return;
+    const i = site.index;
+    if (G.quest.generators[i] || ents.some((e) => e.generatorIndex === i && !e.dead)) return;
+    const d = W.dist(sx, sy), c = centreOf(sx, sy);
+    const g = makeEnemy('shieldgen', c.x, c.y - 3 * TS, k, d);
+    g.generatorIndex = i; g.provoked = true;
+    ents.push(g);
+    for (let j = 0; j < 3 + Math.floor(d / 12); j++) {
+      const q = openSpot(c.x, c.y, 3 * TS, 6 * TS);
+      if (q) { const m = makeEnemy('sixer', q.x, q.y, k, d); m.provoked = true; ents.push(m); }
+    }
+  }
+  function pylonDown(e) {
+    G.quest.generators[e.generatorIndex] = true;
+    const n = G.quest.generators.filter(Boolean).length;
+    NX.UI.banner(`PYLON ${n}/3 DOWN`, n < 3 ? 'The shield flickers…' : CAMP.castle.name, '#ff9b3d');
+    shake(12);
+    if (n >= 3) {
+      W.dropForcefield();
+      NX.UI.banner(CAMP.castle.shieldDown, 'The castle is open', '#ff9b3d');
+      shake(24); Sound.play('boom');
+      for (const r of [320, 640, 960]) fx.push({ type: 'ring', x: P.x, y: P.y, r, color: '#ff9b3d', life: 1.5, max: 1.5, w: 5 });
+    }
+    checkStage();
+    Game.save();
+  }
+  // Anorak (once the castle boss falls) and the Egg (after his outro). Never duplicates.
+  function spawnCastleExtras(k) {
+    const q = W.quest && W.quest.castle;
+    if (!G || !q || skey(q.sx, q.sy) !== k || !active.has(k)) return;
+    const here = (f) => ents.some((e) => !e.dead && e.sector === k && f(e));
+    if (G.quest.castle && !here((e) => e.kind === 'npc' && e.role === 'anorak')) {
+      ents.push(Object.assign({ kind: 'npc', id: nid++, role: 'anorak', look: 'anorak', r: 16, sector: k, theme: 'castle' }, tileAt(q.sx, q.sy, HALF, HALF - 2)));
+    }
+    if (stageId() === 'egg' && G.quest.outro && !G.egg && !here((e) => e.kind === 'pickup' && e.item === 'egg')) {
+      const o = W.findOpen(q.sx * S + HALF, q.sy * S + HALF + 2);   // just south of the altar
+      dropItem((o.tx + 0.5) * TS, (o.ty + 0.5) * TS, 'egg', 1, k, { vx: 0, vy: 0 });
+    }
+  }
+
+  // ---------- Trials (§6.4) ----------
+  // trial = { seq, kind: 'clue'|'gate', act, index, siteKey, cx, cy, arenaR, wave, waves, phase, twist, pellets, outT, ... }
+  // Every trial foe carries trialId = trial.seq; a step is clear when none of them lives.
+  const trialFoes = (t) => ents.filter((e) => e.trialId === t.seq && !e.dead);
+  const pelletsLeft = (t) => t.pellets.reduce((n, [x, y]) => n + (W.tile(x, y) === T.PELLET), 0);
+  const tagTrial = (e, t) => { e.trialId = t.seq; e.provoked = true; e.noFlee = true; return e; };
+  function trialSpot(t) {
+    const p = openSpot(t.cx, t.cy, 3 * TS, t.arenaR * TS, 40);
+    if (p) return p;
+    const o = W.findOpen(Math.floor(t.cx / TS), Math.floor(t.cy / TS) - 3);
+    return { x: (o.tx + 0.5) * TS, y: (o.ty + 0.5) * TS };
+  }
+  function startTrial(kind, act, index) {
+    const Q = W.quest[act], site = kind === 'clue' ? Q.clues[index] : Q.gate, A = CAMP.acts[act];
+    const c = centreOf(site.sx, site.sy), d = W.dist(site.sx, site.sy), theme = W.themeOf(site.sx, site.sy);
+    const t = {
+      seq: ++trialSeq, kind, act, index, siteKey: skey(site.sx, site.sy), sx: site.sx, sy: site.sy, cx: c.x, cy: c.y, arenaR: CC.arena[kind],
+      wave: 1, waves: 1, phase: 'wave', twist: null, pellets: null, outT: null,
+      d, theme, steps: [], step: 0, pause: 0, meteorT: 0, color: A.color,
+      title: kind === 'clue' ? `${NX.THEMES[theme].fandom} Cabinet` : `${actWord(act)} Gate`,
+    };
+    t.baseTitle = t.title;
+    let sub;
+    if (kind === 'clue') {
+      t.twist = A.clueTrial.twist; sub = A.clueTrial.banner;
+      if (t.twist === 'pellets') t.phase = 'pellets';
+      else for (let i = 0; i < CC.clueWaves; i++) t.steps.push({ wave: true });
+      if (t.twist === 'rift') { const pool = NX.THEME_LIST.filter((k) => k !== theme); t.riftTheme = pool[NX.hash(site.sx, site.sy, 77) % pool.length]; }
+    } else {
+      for (let i = 0; i < (CC.gateWaves[act] || 0); i++) t.steps.push({ wave: true });   // jade: none, a pure boss rush
+      for (const b of A.gateTrial.bosses) t.steps.push({ echo: b });
+      const nw = t.steps.filter((s) => s.wave).length, ne = t.steps.length - nw;
+      sub = [nw ? `${nw} waves` : '', ne ? (ne === 1 ? 'an echo' : `${ne} echoes`) : ''].filter(Boolean).join(', then ') + ' — hold the circle';
+    }
+    t.waves = Math.max(1, t.steps.length);
+    trial = t;
+    tel().tally('trialStarts', stageId());
+    NX.UI.banner(kind === 'clue' ? `CABINET ${index + 1}/3` : `THE ${act.toUpperCase()} GATE TRIAL`, sub, A.color);
+    Sound.play('boss'); shake(8); ring(c.x, c.y, t.arenaR * TS, A.color, 0.8, 4);
+    if (t.phase === 'pellets') startPellets(t); else runStep(t);
+  }
+  function runStep(t) {
+    const s = t.steps[t.step];
+    t.wave = t.step + 1;
+    if (!s) return;
+    if (s.echo) { spawnEcho(t, s.echo); return; }
+    t.phase = 'wave'; t.title = t.baseTitle; t.meteorT = 1.5;
+    const n = randi(CC.waveSize[0], CC.waveSize[1]) + Math.floor(t.d / CC.waveSizePerSectors);
+    const rift = t.twist === 'rift' && t.step >= 1 ? NX.THEMES[t.riftTheme] : null;   // copper twist: waves 2-3 leak in from another world
+    if (rift && t.step === 1) { NX.UI.banner(NX.EVENTS.rift.banner, `${rift.fandom} is spilling into this cabinet`, rift.map); Sound.play('warp'); }
+    for (let i = 0; i < n; i++) {
+      const p = trialSpot(t);
+      const type = t.kind === 'clue' ? NX.weighted((rift || NX.THEMES[t.theme]).enemies)
+        : Math.random() < 0.25 ? 'sixer' : NX.weighted(NX.THEMES[pick(NX.THEME_LIST)].enemies);
+      ents.push(tagTrial(makeEnemy(type, p.x, p.y, t.siteKey, t.d), t));
+      if (rift) ring(p.x, p.y, 36, rift.map, 0.8);
+    }
+    if (t.step > 0) NX.UI.toast(`Wave ${t.wave}/${t.waves}`, t.color);
+  }
+  // An echo: a past boss at echoHpMult HP. Boss bar + event suppression via bosses['trial:'+siteKey];
+  // never touches G.revealed and drops no key, relic or egg.
+  function spawnEcho(t, type) {
+    const p = trialSpot(t), e = tagTrial(makeEnemy(type, p.x, p.y, t.siteKey, t.d), t);
+    e.hp = e.maxHp = Math.max(1, Math.round(e.maxHp * (CC.echoHpMult[t.act] || 1)));
+    e.echo = true;
+    ents.push(e); bosses['trial:' + t.siteKey] = e;
+    t.phase = 'echo'; t.title = `Echo of ${e.def.name}`;
+    tel().tally('bossAttempts', 'echo:' + type);
+    NX.UI.banner(`ECHO OF ${e.def.name.toUpperCase()}`, 'Gate Trial', e.def.color || t.color);
+    Sound.play('boss'); shake(14); ring(p.x, p.y, 60, e.def.color || '#fff', 0.8, 4);
+  }
+  // Crystal twist: a dot board around the cabinet, four ghosts that keep coming back.
+  function startPellets(t) {
+    const tx0 = t.sx * S + HALF, ty0 = t.sy * S + HALF, R = CC.pelletRadius, corner = (i, j) => Math.abs(i) === 4 && Math.abs(j) === 4;
+    t.pellets = []; t.powers = []; t.ghosts = {};
+    for (let j = -R; j <= R; j++) for (let i = -R; i <= R; i++) {
+      if ((i + j) % 2 !== 0 || Math.hypot(i, j) > R || corner(i, j) || (i === 0 && j === -2)) continue;   // (0,-2) = the cabinet
+      const x = tx0 + i, y = ty0 + j, tt = W.tile(x, y);
+      if (tt === T.GATE || NX.SOLID.has(tt)) continue;
+      W.setTile(x, y, T.PELLET); t.pellets.push([x, y]);
+    }
+    for (const [i, j] of [[-4, -4], [4, -4], [-4, 4], [4, 4]]) {
+      const x = tx0 + i, y = ty0 + j, tt = W.tile(x, y);
+      if (tt !== T.GATE && !NX.SOLID.has(tt)) { W.setTile(x, y, T.POWER); t.powers.push([x, y]); }
+    }
+    for (const g of ['blinky', 'pinky', 'inky', 'clyde']) spawnGhost(t, g);
+  }
+  function spawnGhost(t, type) {
+    const p = trialSpot(t), e = tagTrial(makeEnemy(type, p.x, p.y, t.siteKey, t.d), t);
+    if (P.power > 0) e.scared = P.power;
+    ents.push(e); t.ghosts[type] = { e, at: null };
+    ring(p.x, p.y, 30, e.def.color || '#fff', 0.6);
+  }
+  function dropMeteors(t) {
+    const dmg = Math.round(3 * (1 + C.world.dmgPerSector * t.d));
+    for (let i = 0; i < CC.meteorCount; i++) {
+      const p = openSpot(t.cx, t.cy, 0, t.arenaR * TS);
+      if (p) haz.push({ type: 'meteor', x: p.x, y: p.y, warn: 1.2, r: 46, dmg, src: 'meteor' });
+    }
+  }
+  function updateTrial(dt) {
+    const t = trial;
+    if (!t) return;
+    if (!active.has(t.siteKey)) { failTrial(); return; }   // its foes were just unloaded with the sector
+    // Leaving: (arenaR + trialLeaveTiles) tiles out for trialLeaveSec seconds fails the trial.
+    if (Math.hypot(P.x - t.cx, P.y - t.cy) > (t.arenaR + CC.trialLeaveTiles) * TS) {
+      t.outT = t.outT == null ? CC.trialLeaveSec : t.outT - dt;
+      if (t.outT <= 0) { failTrial(); return; }
+    } else t.outT = null;
+    // Leash: foes that stray are pulled back into the arena.
+    const foes = trialFoes(t), leash = (t.arenaR + CC.trialLeash) * TS;
+    for (const e of foes) if (Math.hypot(e.x - t.cx, e.y - t.cy) > leash) { const q = trialSpot(t); e.x = q.x; e.y = q.y; }
+    if (t.phase === 'pellets') {
+      for (const g of Object.keys(t.ghosts)) {
+        const gh = t.ghosts[g];
+        if (!gh.e.dead) continue;
+        if (gh.at == null) gh.at = time + 3; else if (time >= gh.at) spawnGhost(t, g);
+      }
+      if (!pelletsLeft(t)) winTrial();
+      return;
+    }
+    if (foes.length) {
+      if (t.twist === 'meteors' && t.phase === 'wave' && (t.meteorT -= dt) <= 0) { t.meteorT = CC.meteorEvery; dropMeteors(t); }
+      return;
+    }
+    if (t.step + 1 >= t.steps.length) { winTrial(); return; }
+    if ((t.pause += dt) < 1.2) return;   // a breath between waves
+    t.pause = 0; t.step++;
+    runStep(t);
+  }
+  function endTrial(t) {
+    for (const e of trialFoes(t)) { e.dead = true; burst(e.x, e.y, '#9aa0c0', 10, 120); }
+    delete bosses['trial:' + t.siteKey];
+    trial = null;
+  }
+  function winTrial() {
+    const t = trial;
+    if (!t) return;
+    endTrial(t);
+    if (t.pellets) for (const [x, y] of t.pellets) if (W.tile(x, y) === T.PELLET) W.setTile(x, y, T.FLOOR);
+    const xp = Math.round(CC.trialBonusLevels * xpNeed(G.level));
+    gainXp(xp);
+    NX.UI.toast(`TRIAL CLEAR +${xp} XP`, '#5bff9a', 4);
+    tel().tally('trialWins', stageId());
+    Sound.play('chest'); ring(t.cx, t.cy, t.arenaR * TS, t.color, 0.9, 5);
+    if (t.kind === 'clue') {
+      advance(`${t.act}_clue_${t.index}`);
+      addClueChest({ act: t.act, index: t.index }, t.sx, t.sy, t.siteKey);
+      NX.UI.say('The cabinet screen', [Game.fmtQuest(CAMP.acts[t.act].clues[t.index])]);
+    } else advance(t.act + '_gate');
+  }
+  function failTrial() {
+    const t = trial;
+    if (!t) return;
+    endTrial(t);
+    for (const [x, y] of [...(t.pellets || []), ...(t.powers || [])]) { const tt = W.tile(x, y); if (tt === T.PELLET || tt === T.POWER) W.setTile(x, y, T.FLOOR); }
+    NX.UI.toast('Trial failed — the cabinet resets.', '#ff6a6a', 4);
+    tel().tally('trialFails', stageId());
+  }
+  Game.trial = () => {
+    const t = trial;
+    if (!t) return null;
+    return { title: t.title, wave: t.wave, waves: t.waves, left: t.phase === 'pellets' ? pelletsLeft(t) : trialFoes(t).length, kind: t.kind, twist: t.twist, outT: t.outT == null ? null : Math.max(0, Math.ceil(t.outT)) };
+  };
+
+  // ---------- The Final Riddle (crystal gate) ----------
+  const riddleBlocked = () => ents.some((e) => e.riddleSquad && !e.dead);
+  Game.riddleState = () => ({ blocked: riddleBlocked() });
+  Game.answerRiddle = (i) => {
+    if (!G || stageId() !== 'crystal_gate' || trial || riddleBlocked()) return undefined;
+    const R = CAMP.finalRiddle;
+    if (i === R.answer) { NX.UI.toast(R.right, '#bdf4ff', 5); startTrial('gate', 'crystal', null); return true; }
+    NX.UI.toast(R.wrong, '#ff6a6a', 5); Sound.play('hurt');
+    // A wrong answer summons an IOI squad; the gate stays shut while any of them lives. No other lockout.
+    const g = W.quest.crystal.gate, k = skey(g.sx, g.sy), d = W.dist(g.sx, g.sy);
+    const door = ents.find((e) => e.kind === 'site' && e.role === 'gatedoor' && e.sector === k) || tileAt(g.sx, g.sy, HALF, HALF - 4);
+    for (let j = 0; j < 4; j++) {
+      const p = openSpot(door.x, door.y, 3 * TS, 8 * TS);
+      if (p) { const m = makeEnemy('sixer', p.x, p.y, k, d); m.provoked = true; m.riddleSquad = true; ents.push(m); ring(p.x, p.y, 30, '#ff9b3d'); }
+    }
+    return false;
+  };
+
+  // ---------- Guidance (§6.7) ----------
+  const DIRS = ['east', 'north-east', 'north', 'north-west', 'west', 'south-west', 'south', 'south-east'];
+  const compass = (from, to) => {   // screen-up = north = -y
+    const dx = to.sx - from.sx, dy = to.sy - from.sy;
+    return dx || dy ? DIRS[(Math.round(Math.atan2(-dy, dx) / (Math.PI / 4)) + 8) % 8] : 'here';
+  };
+  // The dashed hint circle around a cabinet is offset from it by a stable hashed jitter in [-1, 1].
+  const clueCentre = (s) => ({ sx: s.sx + (NX.hash(s.sx, s.sy, 61) % 3) - 1, sy: s.sy + (NX.hash(s.sx, s.sy, 62) % 3) - 1 });
+  const recLevel = (d) => Math.max(1, Math.round((CC.comfortHits * CC.avgBaseHit * (1 + C.world.dmgPerSector * d) - C.player.maxHp) / C.player.hpPerLevel + 1));
+  Game.recLevel = recLevel;
+  Game.fmtQuest = (str, target) => {
+    if (str == null) return '';
+    const p = sectorOf(P.x, P.y);
+    let t = target;
+    if (!t) { const o = G ? Game.objective() : null; t = o && o.sx != null ? o : p; }
+    const name = G ? G.name : 'Gunter';
+    return String(str).replace(/\{name\}/g, () => name).replace(/\{n\}/g, () => cheb(p, t)).replace(/\{dir\}/g, () => compass(p, t))
+      .replace(/\{x\}/g, () => t.sx).replace(/\{y\}/g, () => t.sy);
+  };
+  // The real site behind a stage (not the hint circle): used for distances, markers and debug warps.
+  function stageSite(id) {
+    const Q = W.quest, st = parseStage(id);
+    if (st.kind === 'clue') return Q[st.act].clues[st.index];
+    if (st.kind === 'key' || st.kind === 'gate') return Q[st.act][st.kind];
+    if (id === 'castle_gens') {
+      const p = sectorOf(P.x, P.y), left = Q.castle.generators.filter((g, i) => !G.quest.generators[i]);
+      return left.sort((a, b) => cheb(p, a) - cheb(p, b))[0] || Q.castle;
+    }
+    if (id === 'castle' || id === 'egg') return Q.castle;
+    return id === 'intro' ? { sx: 0, sy: 0 } : null;
+  }
+  Game.objective = () => {
+    const o = { text: '', sx: null, sy: null, r: 0, riddle: null, rec: null };
+    if (!G || !W.quest) return o;
+    const id = stageId(), st = parseStage(id), A = st.act ? CAMP.acts[st.act] : null, p = sectorOf(P.x, P.y);
+    const at = (s, r = 0) => { o.sx = s.sx; o.sy = s.sy; o.r = r; };
+    let site = stageSite(id);
+    if (id === 'intro') { at(site); o.text = '▶ Talk to the Curator at Nexus Prime'; }
+    else if (st.kind === 'clue') {
+      const c = clueCentre(site);
+      at(c, CC.hintRadius);
+      o.text = p.sx === site.sx && p.sy === site.sy ? '▶ Play the arcade cabinet'
+        : cheb(p, c) <= o.r ? '▶ Match the riddle to a map colour'
+          : Game.fmtQuest(`▶ Cabinet ${st.index + 1}/3 — {n} sectors {dir}`, c);
+      o.riddle = st.index ? A.clues[st.index - 1] : A.intro[A.intro.length - 1];
+    } else if (st.kind === 'key') {
+      o.riddle = A.clues[2];
+      if (st.act === 'jade' && !canCross()) { site = W.quest.jade.clues[2]; at(site); o.text = '▶ Cross the data-moat: Nimbus 2000 · Elytra · Portal Gun'; }
+      else { const k = NX.KEYS[st.act]; at(site); o.text = `▶ Defeat ${NX.ENEMIES[k.boss].name} for the ${k.name}`; }
+    } else if (st.kind === 'gate') { at(site); o.text = `▶ Open the ${actWord(st.act)} Gate`; o.riddle = Game.fmtQuest(A.gateIntro, site); }
+    else if (id === 'castle_gens') { at(site); o.text = `▶ Destroy the IOI shield pylons (${G.quest.generators.filter(Boolean).length}/3)`; o.riddle = CAMP.castle.intro[1]; }
+    else if (id === 'castle') { at(site); o.text = '▶ Breach Anorak’s Castle'; o.riddle = CAMP.castle.intro[2]; }
+    else if (id === 'egg') { at(site); o.text = G.quest.outro ? '▶ Take the Egg' : '▶ Speak with Anorak'; }
+    else { o.text = 'Egg found! Hunt raid bosses for relics.'; return o; }
+    o.rec = recLevel(W.dist(site.sx, site.sy));
+    if (G.level < o.rec - CC.recSlack) o.text += ` · LV ${o.rec} advised`;
+    return o;
+  };
+  // Map markers: the current target (with its hint radius), finished sites, discovered future cabinets
+  // (dim), pylons from castle_gens on, and the castle once the Crystal Gate is open.
+  Game.questMarkers = () => {
+    const out = [];
+    if (!G || !W.quest) return out;
+    const Q = W.quest, id = stageId(), o = Game.objective();
+    const mk = (s, kind, act, done, current, label, color, r = 0) => out.push({ sx: s.sx, sy: s.sy, r, kind, act, done, current, label, color });
+    for (const act of ACTS) {
+      const A = CAMP.acts[act], key = NX.KEYS[act];
+      Q[act].clues.forEach((s, i) => {
+        const sid = `${act}_clue_${i}`, label = `Cabinet ${i + 1}`;
+        if (id === sid) mk(o, 'clue', act, false, true, label, A.color, o.r);
+        else if (isDone(sid)) mk(s, 'clue', act, true, id === act + '_key' && o.sx === s.sx && o.sy === s.sy, label, A.color);
+        else if (discovered.has(skey(s.sx, s.sy))) mk(s, 'clue', act, false, false, label, A.color);
+      });
+      if (id === act + '_key') mk(Q[act].key, 'key', act, false, true, key.name, key.color);
+      else if (isDone(act + '_key')) mk(Q[act].key, 'key', act, true, false, key.name, key.color);
+      if (id === act + '_gate') mk(Q[act].gate, 'gate', act, false, true, `${actWord(act)} Gate`, A.color);
+      else if (isDone(act + '_gate')) mk(Q[act].gate, 'gate', act, true, false, `${actWord(act)} Gate`, A.color);
+    }
+    if (stageIdx(id) >= stageIdx('castle_gens')) Q.castle.generators.forEach((g, i) => mk(g, 'generator', null, G.quest.generators[i], id === 'castle_gens' && !G.quest.generators[i], `Pylon ${i + 1}`, '#ff9b3d'));
+    if (isDone('crystal_gate')) mk(Q.castle, 'castle', null, isDone('egg'), id === 'castle' || id === 'egg', CAMP.castle.name, NX.THEMES.castle.map);
+    return out;
+  };
+
+  // ---------- Rivals and rank (§6.8) ----------
+  // Rivals follow a schedule, rubber-banded to within one milestone of the player either way.
+  const rivalAt = (r, i) => CC.milestoneMinutes[CAMP.race[i]] * r.paceMult * CC.targetHours / 12 / C.rivals.pace;
+  const raceProgress = () => CAMP.race.reduce((n, id) => n + (isDone(id) ? 1 : 0), 0);
+  function rivalShown(r, p) {
+    let sched = 0;
+    for (let i = 0; i < CAMP.race.length; i++) if (G.playTime / 60 >= rivalAt(r, i)) sched++;
+    return Math.min(CAMP.race.length, clamp(sched, Math.max(0, p - 1), p + 1));
+  }
+  function rivalsCheck() {
+    if (G.egg) return;   // rivals never take the Egg; after yours, they stop reporting
+    const p = raceProgress();
+    for (const r of NX.RIVALS) {
+      const was = G.rivals[r.name] || 0, now = rivalShown(r, p);
+      if (now <= was) continue;
+      for (let j = was; j < now; j++) NX.UI.toast(`📡 ${r.name} ${CAMP.raceLabels[j]}!`, r.color, 5);
+      G.rivals[r.name] = now;
+    }
+  }
+  function scoreboardCheck() {
+    const p = raceProgress();
+    if (G.quest.first || !p || !NX.RIVALS.every((r) => rivalShown(r, p) < p)) return;
+    G.quest.first = true;
+    NX.UI.banner('#1 ON THE SCOREBOARD', `${CAMP.raceShort[p - 1]} · ahead of every rival`, '#ffd23f');
+    const say = (name, line) => { const r = NX.RIVALS.find((x) => x.name === name); if (r) NX.UI.toast(`📡 ${name}: ${line}`, r.color, 6); };
+    say('Artemis', `Who is ${G.name}, and why are they ahead of me?`);
+    say('IOI-655321', 'Noted. Escalating.');
+  }
+  const eggRank = () => {
+    const t = (G.quest.ms.crystal_gate != null ? G.quest.ms.crystal_gate : G.playTime) / 60;
+    return 1 + NX.RIVALS.filter((r) => rivalAt(r, 5) < t).length;
+  };
+  Game.playerRaceProgress = () => (G ? raceProgress() : 0);
+  Game.rivalStatus = () => {
+    if (!G) return [];
+    const p = raceProgress();
+    return NX.RIVALS.map((r) => {
+      const shown = Math.max(G.rivals[r.name] || 0, rivalShown(r, p));
+      return { name: r.name, color: r.color, progress: shown, label: CAMP.raceShort[shown - 1] || 'Starting out', corp: !!r.corp };
+    });
+  };
+
+  // ---------- Telemetry (§6.9) ----------
+  Game.campaignInfo = () => {
+    const ids = [...CAMP.race, 'egg'];
+    const dist = ids.map((id) => { const s = stageSite(id === 'castle_gens' ? 'castle' : id); return W.dist(s.sx, s.sy); });
+    return { targetHours: CC.targetHours, ids, minutes: ids.map((id) => Math.round(CC.milestoneMinutes[id] * CC.targetHours / 12)), dist, rec: dist.map(recLevel) };
+  };
 
   // ---------- Enemy AI ----------
   function nearestEnemy(from, maxD, filter) {
@@ -996,7 +1579,7 @@
         break;
       case 'shooter':
         if (!tgt) { wander(); break; }
-        if (d.flees && !ents.some((o) => o !== e && o.kind === 'enemy' && !o.dead && dist(o, e) < 220)) { step(angleTo(tgt, e), e.speed * 1.2); if (Math.random() < dt) text(e.x, e.y - 22, 'AAAH!', '#ffb03a', 10, 0.6); break; }
+        if (d.flees && !e.noFlee && !ents.some((o) => o !== e && o.kind === 'enemy' && !o.dead && dist(o, e) < 220)) { step(angleTo(tgt, e), e.speed * 1.2); if (Math.random() < dt) text(e.x, e.y - 22, 'AAAH!', '#ffb03a', 10, 0.6); break; }
         shooter(e, tgt, dt, step);
         break;
       case 'charger': if (!tgt) { e.state = 'idle'; wander(); break; } charger(e, tgt, dt, step); break;
@@ -1144,28 +1727,49 @@
     }
   }
 
+  // Guardians and raid bosses appear when you step into their arena (13 tiles from the sector centre).
+  // A key guardian only shows during its own <act>_key stage; before that the arena gives the act's keyHint.
   function bossCheck() {
     for (const k of active) {
       const [sx, sy] = k.split(',').map(Number);
-      const keyId = W.keyAt(sx, sy), raidTheme = W.raidAt(sx, sy);
+      const site = W.siteAt(sx, sy), keyId = site && site.type === 'key' ? site.act : null, raidTheme = W.raidAt(sx, sy);
+      if (site && site.type === 'castle') { castleBossCheck(sx, sy, k); continue; }
       if (!keyId && !raidTheme) continue;
-      if (keyId && G.keys[keyId]) continue;
-      if (raidTheme && G.raids[raidTheme]) continue;
       if (bosses[k] && !bosses[k].dead) continue;
-      if (ents.some((e) => e.kind === 'pickup' && e.sector === k && (e.item === 'key' || e.item === 'relic'))) continue;
-      const g = W.gateWorld(sx, sy);
-      if (dist(P, g) > 13 * TS) continue;
+      const c = centreOf(sx, sy), near = dist(P, c) <= 13 * TS;
+      if (keyId) {
+        if (stageId() !== keyId + '_key' || G.keys[keyId]) {
+          if (near && !hinted.has(k) && stageIdx(stageId()) < stageIdx(keyId + '_key')) { hinted.add(k); NX.UI.say('The Curator ◈ transmission', [CAMP.acts[keyId].keyHint]); }
+          continue;
+        }
+        if (ents.some((e) => e.kind === 'pickup' && e.sector === k && e.item === 'key')) continue;
+      } else if (G.raids[raidTheme] || ents.some((e) => e.kind === 'pickup' && e.sector === k && e.item === 'relic')) continue;
+      if (!near) continue;
       const type = keyId ? NX.KEYS[keyId].boss : NX.RAIDS[raidTheme].boss;
-      const b = makeEnemy(type, g.x, g.y - 6 * TS, k, W.dist(sx, sy));
+      const b = makeEnemy(type, c.x, c.y - 6 * TS, k, W.dist(sx, sy));
       b.keyId = keyId; b.raidTheme = raidTheme; b.provoked = true;
       ents.push(b); bosses[k] = b;
+      // Blinky XL's twist: four big dots around his arena, re-laid every time he appears.
+      if (keyId === 'crystal') for (const [i, j] of [[-6, -6], [6, -6], [-6, 6], [6, 6]]) W.setTile(sx * S + HALF + i, sy * S + HALF + j, T.POWER);
       bossIntro(b);
     }
   }
+  // IOI-655321 holds the castle once the shield is down.
+  function castleBossCheck(sx, sy, k) {
+    if (stageId() !== 'castle' || G.quest.castle || (bosses.castle && !bosses.castle.dead)) return;
+    const c = centreOf(sx, sy);
+    if (dist(P, c) > 13 * TS) return;
+    const b = makeEnemy(CAMP.castle.boss, c.x, c.y - 6 * TS, k, W.dist(sx, sy));
+    b.castleBoss = true; b.provoked = true;
+    ents.push(b); bosses.castle = b;
+    bossIntro(b);
+  }
   function bossIntro(b) {
-    G.revealed[b.raidTheme || b.keyId] = true;
+    const rk = b.raidTheme || b.keyId;
+    if (rk) G.revealed[rk] = true;
     tel().tally('bossAttempts', b.type);
-    NX.UI.banner(b.def.name.toUpperCase(), `${b.def.fandom} · ${b.keyId ? 'Guardian of the ' + NX.KEYS[b.keyId].name : 'RAID BOSS'}`, b.def.color || '#ff3030');
+    const role = b.keyId ? 'Guardian of the ' + NX.KEYS[b.keyId].name : b.castleBoss ? CAMP.castle.name : 'RAID BOSS';
+    NX.UI.banner(b.def.name.toUpperCase(), `${b.def.fandom} · ${role}`, b.def.color || '#ff3030');
     Sound.play('boss'); shake(14);
     if (b.def.shout) setTimeout(() => G && !b.dead && text(b.x, b.y - b.r - 20, b.def.shout, '#fff', 14, 2.5), 900);
   }
@@ -1174,7 +1778,7 @@
   function maybeEvent() {
     if (G.playTime < nextEventAt) return;
     nextEventAt = G.playTime + rand(...C.events.everyMinutes) * 60;
-    if (isHub(P.x, P.y) || Game.bossList().length || dead) return;
+    if (trial || isHub(P.x, P.y) || Game.bossList().length || dead) return;   // never during a trial
     const { sx, sy } = sectorOf(P.x, P.y), d = W.dist(sx, sy);
     const pool = Object.entries(NX.EVENTS).filter(([id, ev]) => !(ev.minDist && d < ev.minDist)).map(([id, ev]) => [id, ev.weight]);
     const id = NX.weighted(pool), ev = NX.EVENTS[id];
@@ -1221,18 +1825,6 @@
     }
   }
 
-  function rivalsCheck() {
-    for (const r of NX.RIVALS) r.at.forEach((min, i) => {
-      const id = r.name + i;
-      if (G.rivals[id] || G.playTime / 60 < min / C.rivals.pace) return;
-      G.rivals[id] = true;
-      const what = i < 3 ? `the ${NX.KEYS[NX.KEY_ORDER[i]].name}` : 'THE EGG';
-      NX.UI.toast(`📡 ${r.name} found ${what}!`, r.color, 5);
-      if (i === 3 && !G.egg) NX.UI.toast('The hunt isn\'t over — the scoreboard still counts your rank.', '#aaa', 5);
-    });
-  }
-  Game.rivalStatus = () => NX.RIVALS.map((r) => ({ name: r.name, color: r.color, keys: r.at.slice(0, 3).filter((m) => G.playTime / 60 >= m / C.rivals.pace).length, egg: G.playTime / 60 >= r.at[3] / C.rivals.pace }));
-
   // ---------- Update ----------
   Game.update = (dtReal) => {
     if (!G) return;
@@ -1266,6 +1858,7 @@
     }
     updateFx(dt);
     ents = ents.filter((e) => !e.dead);
+    updateTrial(dt);
     comboT -= dt; if (comboT <= 0) combo = 0;
 
     // periodic systems
@@ -1325,8 +1918,10 @@
       const sdt = s.team === 'enemy' ? edt : dt;
       s.age += sdt;
       if (s.grenade) {
-        const k = Math.min(1, s.age / s.flight);
-        s.x = s.gx0 + (s.gx1 - s.gx0) * k; s.y = s.gy0 + (s.gy1 - s.gy0) * k;
+        const k = Math.min(1, s.age / s.flight), gx = s.gx0 + (s.gx1 - s.gx0) * k, gy = s.gy0 + (s.gy1 - s.gy0) * k;
+        // lobbed over walls, but never through the IOI forcefield
+        if (W.tile(Math.floor(gx / TS), Math.floor(gy / TS)) === T.FORCE) { s.dead = true; explode(s.x, s.y, 95, 9, 'player', true, 'grenade'); continue; }
+        s.x = gx; s.y = gy;
         if (s.age >= s.life) { s.dead = true; explode(s.x, s.y, 95, 9, 'player', true, 'grenade'); }
         continue;
       }
@@ -1344,6 +1939,8 @@
         if (dist(s, home) < 24) { s.dead = true; continue; }
       }
       const nx = s.x + s.vx * sdt, ny = s.y + s.vy * sdt;
+      // returning discs fly through walls, but nothing crosses the forcefield
+      if (s.boomer && s.phase === 'back' && W.tile(Math.floor(nx / TS), Math.floor(ny / TS)) === T.FORCE) { s.dead = true; burst(s.x, s.y, '#ff9b3d', 5, 80, 2); continue; }
       s.dist += Math.hypot(s.vx, s.vy) * sdt;
       if (s.boomer && s.phase === 'out' && s.dist > s.range) { s.phase = 'back'; s.hit.clear(); }
       if (!(s.boomer && s.phase === 'back') && W.stopsShotAt(nx, ny)) {
@@ -1409,6 +2006,8 @@
     const a = Math.atan2(s.vy, s.vx);
     let x = s.x, y = s.y;
     for (let i = 0; i < 6 && W.blocked(x, y, 10); i++) { x -= Math.cos(a) * 8; y -= Math.sin(a) * 8; }
+    // still blocked (water, wall)? snap to the nearest open tile so a portal is always usable
+    if (W.blocked(x, y, 10)) { const o = W.findOpen(Math.floor(x / TS), Math.floor(y / TS)); x = (o.tx + 0.5) * TS; y = (o.ty + 0.5) * TS; }
     ents = ents.filter((e) => !(e.kind === 'portal' && e.color === s.portal));
     ents.push({ kind: 'portal', id: nid++, x, y, r: 16, color: s.portal });
     ring(x, y, 30, s.portal ? '#ff9a1a' : '#3a9aff');
@@ -1437,7 +2036,7 @@
     NX.UI.banner(`GOTCHA! ${e.def.name.toUpperCase()}`, rec.active ? 'joined your squad' : 'sent to your PC (manage pets in the pause menu)', '#ff6a6a');
     Sound.play('caught');
     if (rec.active) addPet(rec);
-    gainXp(Math.round(e.def.xp * e.lvl));
+    gainXp(Math.round(e.def.xp * e.lvl * (e.trialId != null ? CC.trialXpMult : 1)));
   }
 
   function updateHazards(dt) {
@@ -1520,6 +2119,7 @@
         case 'enemy': if (!e.capturing) { Art.enemy(ctx, e, time); drawHp(ctx, e); } break;
         case 'pet': Art.enemy(ctx, e, time); Art.heart(ctx, e.x, e.y - e.r - 14, 0.7, '#5bff9a'); break;
         case 'npc': Art.npc(ctx, e, time); break;
+        case 'site': (Art.site || drawSiteFallback)(ctx, e, time); break;
         case 'chest': Art.chest(ctx, e); if (e.tier === 'gold' && !e.open) Art.circle(ctx, e.x, e.y - 4, 20, 'rgba(255,210,63,0.15)'); break;
         case 'pickup': Art.pickup(ctx, e, time); break;
       }
@@ -1581,6 +2181,21 @@
     if (!P.mount || NX.MOUNTS[P.mount].attack) {
       ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 2;
       ctx.beginPath(); ctx.arc(P.x, P.y, 26, P.aim - 0.2, P.aim + 0.2); ctx.stroke();
+    }
+  }
+
+  // 2D stand-in for a campaign site until js/art.js provides Art.site(ctx, e, t).
+  function drawSiteFallback(ctx, e) {
+    const col = CAMP.acts[e.act].color;
+    if (e.role === 'cabinet') {
+      ctx.fillStyle = '#1a1a2a'; ctx.fillRect(e.x - 11, e.y - 30, 22, 32);
+      ctx.fillStyle = isDone(`${e.act}_clue_${e.index}`) ? '#5bff9a' : stageId() === `${e.act}_clue_${e.index}` ? '#ffd23f' : '#333';
+      ctx.fillRect(e.x - 8, e.y - 25, 16, 11);
+      ctx.fillStyle = col; ctx.fillRect(e.x - 11, e.y - 33, 22, 4);
+    } else {
+      ctx.strokeStyle = col; ctx.lineWidth = isDone(e.act + '_gate') ? 7 : 4;
+      ctx.beginPath(); ctx.ellipse(e.x, e.y - 22, 18, 24, 0, 0, Math.PI * 2); ctx.stroke();
+      ctx.fillStyle = '#4a4458'; ctx.fillRect(e.x - 20, e.y - 2, 40, 6);
     }
   }
 
@@ -1685,4 +2300,51 @@
       }
     }
   }
+
+  // ---------- Playtest helpers ----------
+  // main.js assigns NX.debug = { Game, UI, start } after this file loads; the setter merges these in.
+  const campaignDebug = {
+    stages: () => STAGES.slice(),
+    quest: () => G && JSON.parse(JSON.stringify(Object.assign({ objective: Game.objective(), trial: Game.trial(), keys: G.keys }, G.quest))),
+    // Jump to any stage with keys, pylons, castle and outro consistent with it; respawns the nearby sectors and saves.
+    setStage(id) {
+      if (!G || !STAGES.includes(id)) return 'unknown stage: ' + id;
+      if (trial) failTrial();
+      const past = (s) => stageIdx(id) > stageIdx(s);
+      G.quest.stage = id;
+      for (const a of ACTS) { if (past(a + '_key')) G.keys[a] = true; else delete G.keys[a]; delete keyDrops[a]; }
+      G.quest.generators = [0, 1, 2].map(() => past('castle_gens'));
+      G.quest.castle = past('castle'); G.quest.outro = past('egg'); G.egg = id === 'done';
+      if (!G.egg) G.eggRank = null;
+      for (const s of STAGES) { if (!past(s)) delete G.quest.ms[s]; else if (G.quest.ms[s] == null) G.quest.ms[s] = Math.round(G.playTime); }
+      const c = W.quest.castle, down = G.quest.generators.every(Boolean);
+      if (down && !W.forceDown) W.dropForcefield();
+      else if (!down && W.forceDown) {
+        W.forceDown = false; W.cache.delete(skey(c.sx, c.sy)); W._last = null;
+        if (NX.R3D && NX.R3D.ok) NX.R3D.refreshSector(c.sx, c.sy);
+      }
+      for (const k of [...active]) deactivate(k);
+      updateSectors(true);
+      Game.save();
+      return stageId();
+    },
+    winTrial() { if (!trial) return false; winTrial(); return true; },
+    failTrial() { if (!trial) return false; failTrial(); return true; },
+    goto: (sx, sy) => warpTo(sx, sy, true),
+    // Warp to the real site of the current stage (cabinet, key, gate, nearest pylon, castle).
+    toSite() { const s = G && stageSite(stageId()); return !!s && warpTo(s.sx, s.sy, true); },
+    level(n) { G.level = Math.max(1, n | 0); G.xp = 0; G.hp = maxHp(); return G.level; },
+    give(id) {
+      if (NX.WEAPONS[id]) { if (!G.weapons.includes(id)) G.weapons.push(id); equip(id); }
+      else if (NX.MOUNTS[id]) { if (!G.mounts.includes(id)) G.mounts.push(id); }
+      else if (NX.RELICS[id]) G.relics[id] = true;
+      else return false;
+      return true;
+    },
+    killBosses() { const list = Game.bossList(); for (const b of list) damageEnemy(b, b.hp + 1e6, { weapon: 'debug', silent: true }); return list.length; },
+    sites: () => W.sites,
+  };
+  Game.debug = campaignDebug;
+  let debugObj = Object.assign({}, campaignDebug);
+  Object.defineProperty(NX, 'debug', { configurable: true, enumerable: true, get: () => debugObj, set: (v) => { debugObj = Object.assign(v || {}, campaignDebug); } });
 })();

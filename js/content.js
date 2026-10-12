@@ -6,9 +6,10 @@
   const NX = window.NX;
 
   // ---------- Tiles ----------
-  const T = NX.T = { FLOOR: 0, WALL: 1, WATER: 2, ROAD: 3, DECOR: 4, BREAK: 5, QBLOCK: 6, USED: 7, PELLET: 8, POWER: 9, GATE: 10, VOID: 11, GRASS: 12, PROP: 13, ALTAR: 14 };
-  NX.SOLID = new Set([T.WALL, T.WATER, T.BREAK, T.QBLOCK, T.USED, T.VOID, T.PROP, T.ALTAR]);
-  NX.STOPS_SHOTS = new Set([T.WALL, T.BREAK, T.QBLOCK, T.USED, T.VOID, T.PROP, T.ALTAR]);
+  // FORCE = the IOI forcefield around Anorak's Castle: blocks walking, flying, ghosts and every shot; never mined.
+  const T = NX.T = { FLOOR: 0, WALL: 1, WATER: 2, ROAD: 3, DECOR: 4, BREAK: 5, QBLOCK: 6, USED: 7, PELLET: 8, POWER: 9, GATE: 10, VOID: 11, GRASS: 12, PROP: 13, ALTAR: 14, FORCE: 15 };
+  NX.SOLID = new Set([T.WALL, T.WATER, T.BREAK, T.QBLOCK, T.USED, T.VOID, T.PROP, T.ALTAR, T.FORCE]);
+  NX.STOPS_SHOTS = new Set([T.WALL, T.BREAK, T.QBLOCK, T.USED, T.VOID, T.PROP, T.ALTAR, T.FORCE]);
 
   // ---------- Fandom sectors ----------
   // gen: natural (noise terrain) | maze | city | grid | hub
@@ -128,8 +129,13 @@
       floor: ['#dfe3e6', '#d8dce0'], road: '#c8cdd2', wall: 'panel', wallColor: '#9aa2aa',
       enemies: [['turret', 5], ['sentrybot', 3]], count: [6, 10], loot: ['portalgun'],
       lines: ['The cake is... well, ask the lady in charge.', 'Portal Gun: fire twice to make a pair. Walk in one, out the other.'] },
+
+    // The campaign finale (pinned by World, never part of the Voronoi pool).
+    castle: { name: 'Anorak’s Castle', fandom: 'The Egg Hunt', map: '#ff2a4a', gen: 'castle', safe: false,
+      floor: ['#1b1622', '#19141f'], road: '#2b2233', wall: 'obsidian', wallColor: '#2a1a3a', prop: 'statue',
+      enemies: [['sixer', 5], ['agent', 2], ['elite', 2], ['uruk', 2]], count: [8, 12], loot: [], weather: 'ash', lines: [] },
   };
-  NX.THEME_LIST = Object.keys(NX.THEMES).filter((k) => k !== 'hub');
+  NX.THEME_LIST = Object.keys(NX.THEMES).filter((k) => k !== 'hub' && k !== 'castle');
 
   // ---------- Enemies ----------
   // ai: chaser | shooter | charger | flyer | ghost | turret | exploder | koopa | critter | angel | boss
@@ -213,6 +219,7 @@
     sentrybot: { name: 'Sentry Bot', fandom: 'Portal', hp: 4, speed: 85, dmg: 1, ai: 'chaser', art: 'sentry', xp: 4, coins: [1, 4], r: 12, tag: 'robot' },
 
     sixer: { name: 'Sixer', fandom: 'IOI', hp: 5, speed: 72, dmg: 1, ai: 'shooter', fire: 1.2, shot: { speed: 260, color: '#ff9b3d', r: 4 }, jitter: 0.2, art: 'sixer', xp: 6, coins: [3, 7], r: 13, noCatch: true, group: [2, 4] },
+    shieldgen: { name: 'IOI Shield Pylon', fandom: 'IOI', hp: 60, speed: 0, dmg: 1, ai: 'turret', fire: 1.6, burst: 3, shot: { speed: 300, color: '#ff9b3d', r: 5 }, jitter: 0.1, art: 'shieldgen', xp: 30, coins: [10, 20], r: 18, noCatch: true, tag: 'robot', generator: true },
   };
 
   // ---------- Bosses (key guardians, raid bosses, world events) ----------
@@ -241,6 +248,8 @@
     frieza: boss({ name: 'Frieza', fandom: 'Dragon Ball Z', hp: 280, speed: 115, art: 'frieza', xp: 150, coins: [150, 200], fly: true, patterns: ['laser', 'teleport', 'spread', 'ring'], color: '#ff4af0', shotKind: 'orb', shout: 'This isn\'t even my final form.' }),
     glados: boss({ name: 'GLaDOS', fandom: 'Portal', hp: 240, speed: 0, art: 'glados', xp: 130, coins: [130, 170], r: 30, patterns: ['spiral', 'laser', 'summon', 'ring'], summon: 'turret', color: '#ffd23f', shout: 'Oh. It\'s you.' }),
     godzilla: boss({ name: 'GODZILLA', fandom: 'Godzilla', hp: 420, speed: 70, dmg: 5, art: 'godzilla', xp: 250, coins: [250, 350], r: 44, patterns: ['laser', 'stomp', 'dash', 'laser', 'ring'], color: '#4ad0ff', shout: 'SKREEEEOONK!' }),
+    // Castle boss (no passWalls, no fly). Its shout is NX.CAMPAIGN.castle.bossShout (set below).
+    ioi655321: boss({ name: 'IOI-655321', fandom: 'IOI', hp: 600, dmg: 3, speed: 80, r: 30, art: 'ioi655321', patterns: ['boomerang', 'ring', 'dash', 'summon', 'teleport', 'spread', 'spiral', 'laser', 'stomp'], summon: 'sixer', color: '#ff9b3d', xp: 400, coins: [300, 400] }),
   });
 
   // ---------- Weapons ----------
@@ -304,16 +313,114 @@
     speedshoes: { name: 'Power Sneakers', fandom: 'Sonic', desc: '+20% move speed. Gotta go fast.' },
   };
 
-  // ---------- The Egg Hunt ----------
+  // ---------- The Egg Hunt: "The Three Gates" (docs/CAMPAIGN.md) ----------
+  // angle = the act's bearing from the hub (World places its cabinets, key and gate along it).
   NX.KEYS = {
-    copper: { name: 'Copper Key', color: '#e08a4a', theme: 'galaxy', boss: 'darklord', angle: 0,
-      riddle: 'Where troopers miss and the suns burn two, a Dark Lord keeps the copper for you.' },
-    jade: { name: 'Jade Key', color: '#3fcf8e', theme: 'hyrule', boss: 'ganon', angle: 2.2,
-      riddle: 'Where heroes cut grass and pots hide a coin, the Boar King guards jade where the old woods join.' },
-    crystal: { name: 'Crystal Key', color: '#bdf4ff', theme: 'pacmaze', boss: 'bigghost', angle: 4.3,
-      riddle: 'Waka-waka through halls of neon blue — the biggest ghost holds crystal. It is waiting for you.' },
+    copper: { name: 'Copper Key', color: '#e08a4a', theme: 'galaxy', boss: 'darklord', angle: 0 },
+    jade: { name: 'Jade Key', color: '#3fcf8e', theme: 'hyrule', boss: 'ganon', angle: 2.2 },
+    crystal: { name: 'Crystal Key', color: '#bdf4ff', theme: 'pacmaze', boss: 'bigghost', angle: 4.3 },
   };
   NX.KEY_ORDER = ['copper', 'jade', 'crystal'];
+
+  // Stage ids in order; Game keeps G.quest.stage = the current, not-yet-completed one.
+  // Text is the contract's §10, verbatim. Game.fmtQuest fills {name} {n} {dir} {x} {y}.
+  NX.CAMPAIGN = {
+    stages: ['intro', 'copper_clue_0', 'copper_clue_1', 'copper_clue_2', 'copper_key', 'copper_gate', 'jade_clue_0', 'jade_clue_1', 'jade_clue_2', 'jade_key', 'jade_gate',
+      'crystal_clue_0', 'crystal_clue_1', 'crystal_clue_2', 'crystal_key', 'crystal_gate', 'castle_gens', 'castle', 'egg', 'done'],
+    race: ['copper_key', 'copper_gate', 'jade_key', 'jade_gate', 'crystal_key', 'crystal_gate', 'castle_gens'],
+    raceLabels: ['found the Copper Key', 'opened the Copper Gate', 'found the Jade Key', 'opened the Jade Gate', 'found the Crystal Key', 'opened the Crystal Gate', 'is sieging Anorak’s Castle'],
+    raceShort: ['Copper Key', 'Copper Gate', 'Jade Key', 'Jade Gate', 'Crystal Key', 'Crystal Gate', 'Castle Siege'],
+    acts: {
+      copper: {
+        name: "The Copper Act", color: "#e08a4a",
+        clueThemes: ["mushroom", "ghostcity", "doctorwho"],
+        clueTrial: { twist: "rift", banner: "The cabinet glitches — another world is leaking in!" },
+        gateTrial: { type: "waves", bosses: ["darklord"] },
+        intro: [
+          "The Egg sleeps inside Anorak's Castle, somewhere past the last paved road. Three gates stand in the way — copper, jade and crystal — and each one opens only for its own key.",
+          "Keys don't sit on signposts. Each one hides behind three arcade cabinets. Beat a cabinet and its screen whispers where the next one stands.",
+          "My riddles name a world, never a sector. Match the riddle to a colour on your map (M) — the legend knows who lives where, and the dashed circle tells you how close you are.",
+          "Cabinet one is close to home: 'Find the land where bricks hide coins, green pipes are shortcuts and every turtle carries a spare shell. Its mushrooms make you taller. Its plumbers make it look easy.'",
+        ],
+        clues: [
+          "Cabinet two: 'A city that can't sleep because its closets won't stop rattling. The exterminators wear their vacuums on their backs, and the tallest thing downtown would toast nicely over a campfire.'",
+          "Cabinet three: 'Rainy streets where a little blue phone box holds more rooms than a palace, armoured pepper-pots shout the same word at everyone, and the statues only creep closer while your eyes are shut.'",
+          "The Copper Key: 'A desert lit by one sun too many. Its keeper wears a cape indoors, breathes like a broken air-conditioner and swings a humming red blade. Bring something that bats laser bolts back.'",
+        ],
+        keyHint: "The Dark Lord won't show himself until all three copper cabinets are beaten. When he does, a blade that bounces lasers back will make him regret the cape.",
+        gateIntro: "Scratched into the copper: 'Nearer home, {n} sectors {dir} of here, a circle of stone pillars waits for a key that fits.'",
+        gateDone: "The Copper Gate grinds open. Far away, the public scoreboard flickers — and starts spelling your name, {name}.",
+      },
+      jade: {
+        name: "The Jade Act", color: "#3fcf8e",
+        clueThemes: ["hogwarts", "blocklands", "portal"],
+        clueTrial: { twist: "meteors", banner: "The sky cracks open — dodge the red circles!" },
+        gateTrial: { type: "bossrush", bosses: ["mewtwo", "voldemort", "zealot"] },
+        intro: [
+          "◈ Curator here. Lovely work on that gate — the whole NEXUS watched it open. Unfortunately, so did IOI.",
+          "The Jade Key sits on an island wrapped in a data-moat. No bridge, no ferry. You'll need something that flies… or something that cheats.",
+          "Funny thing: every jade cabinet stands in a world that knows a way across water. Open the chests they leave behind.",
+          "Cabinet one: 'Where the post arrives by owl, the staircases change their minds and the favourite sport is played forty feet up on brooms. Wrap up warm — it snows on that campus.'",
+        ],
+        clues: [
+          "Cabinet two: 'A square world where sheep are boxes, trees come down to a bare fist and the green neighbour hisses right before the hug. A dragon roosts at its far edge — they say it leaves its wings behind.'",
+          "Cabinet three: 'A spotless laboratory with a ceiling that talks too much. Its proudest invention shoots doorways instead of bullets. Ignore whatever it promises about dessert.'",
+          "The Jade Key: 'A wide green field where a hero in a pointed cap smashes pots for pocket change. Its keeper is a crowned boar with a grudge older than the cartridge. Fly over the water — or fold the distance in two.'",
+        ],
+        keyHint: "Ganon won't surface until all three jade cabinets are beaten. No wings? The Aperture cabinet's chest holds a Portal Gun: one portal on each shore and the moat becomes a doorway.",
+        gateIntro: "Etched in jade: 'Back toward home, {n} sectors {dir}. This gate remembers every monster you've beaten — and it's inviting three of them back.'",
+        gateDone: "The Jade Gate unfolds like a lotus made of circuit board. Two gates down. One to go.",
+      },
+      crystal: {
+        name: "The Crystal Act", color: "#bdf4ff",
+        clueThemes: ["grid", "namek", "stranger"],
+        clueTrial: { twist: "pellets", banner: "Clear every dot on the board. The ghosts will try to stop you." },
+        gateTrial: { type: "riddle", bosses: ["bigghost"] },
+        intro: [
+          "◈ Curator again. Two gates! You are officially a problem for IOI.",
+          "The Crystal Key is the last and the farthest — out where even a Goomba hits like a troll. Level up before you wander, and believe your HUD when it says 'advised'.",
+          "Cabinet one: 'Inside the machine: neon roads, motorbikes that leave walls behind them, and men in dark glasses who can't stop copy-pasting themselves.'",
+        ],
+        clues: [
+          "Cabinet two: 'A planet with a green sky and teal grass, where seven orange orbs add up to one wish and every fighter shouts for a full minute before throwing a punch.'",
+          "Cabinet three: 'A world flipped inside out: the fairy lights spell out messages, spores drift up instead of down, and something with a flower for a face waits in the dark. Bring a baseball bat with a few home improvements.'",
+          "The Crystal Key: 'The heart of a blue neon maze where a hungry yellow circle once ruled. Four ghosts still patrol, and the red one grew up. Save the big dots for him — they turn the hunted into the hunter.'",
+        ],
+        keyHint: "Blinky XL won't appear until all three crystal cabinets are beaten. Then he shrugs off anything that isn't powered up — four big dots wait around the arena. Eat one, then bite back.",
+        gateIntro: "Cut into the crystal: '{n} sectors {dir}, nearer home. The last gate asks one question. You've carried the answer since your very first step.'",
+        gateDone: "The Crystal Gate shatters into light. Out past the rim of your map, a castle that wasn't there a minute ago is glowing — and something orange is wrapped around it.",
+      },
+    },
+    castle: {
+      name: "Anorak's Castle", boss: "ioi655321", npc: "anorak",
+      reveal: { title: "ANORAK'S CASTLE HAS APPEARED", sub: "Sector {x}, {y} · follow the orange glow" },
+      intro: [
+        "◈ Curator: That's Anorak's Castle. And that orange dome around it? IOI got here first — and they brought a shield.",
+        "Three pylons hold it up, out in the sectors around the walls. Knock all three over and the whole thing folds like a cheap umbrella.",
+        "IOI-655321 is waiting inside. Whatever happens, don't let them reach the altar first.",
+      ],
+      shieldDown: "THE IOI SHIELD IS DOWN",
+      bossShout: "This Egg is now a corporate asset. Please step away from the castle.",
+      outro: [
+        "A tall figure in black and crimson robes steps out from behind the altar. Even the Sixer wreckage stops smoking, out of respect.",
+        "Anorak: 'They brought a shield. You brought curiosity. Curiosity wins more often than people expect.'",
+        "Anorak: 'I hid this Egg for whoever would actually go looking. Turns out that was you, {name}.'",
+        "Anorak: 'Take it. Look after the NEXUS — and leave a few secrets for the next gunter.'",
+      ],
+      after: [
+        "Anorak: 'The Egg is yours, {name}. Go on — it doesn't bite.'",
+        "Anorak: 'Still here? Good. The multiverse is bigger than any castle.'",
+      ],
+    },
+    finalRiddle: {
+      q: "Long before any gate or gunter, a programmer hid his own name in a secret room of his game — a room you could only reach by carrying a single grey pixel through a wall. That room is why hidden secrets are called Easter eggs, and the sword you started with comes from the same game. Which game?",
+      options: ["Adventure — Atari 2600", "Pac-Man — arcade", "Pong — arcade", "Zork — mainframe text adventure"],
+      answer: 0,
+      wrong: "The gate buzzes: WRONG — INSERT COIN. Somewhere, IOI heard that.",
+      right: "The crystal sings. Echoes rush the gate — hold it!",
+    },
+  };
+  E.ioi655321.shout = NX.CAMPAIGN.castle.bossShout;
 
   // One raid boss per fandom, hidden somewhere in that fandom's territory.
   NX.RAIDS = {
@@ -336,13 +443,17 @@
     portal: { boss: 'glados', reward: { relic: 'cake' } },
   };
 
-  // Rival gunters racing you to the egg (minutes of play time at rivals.pace = 1).
+  // Rival gunters racing you through the gates. Each reaches NX.CAMPAIGN.race[i] at
+  // campaign.milestoneMinutes[race[i]] × paceMult × targetHours/12 / rivals.pace (rubber-banded by Game).
+  // Resolved minutes [copper_key, copper_gate, jade_key, jade_gate, crystal_key, crystal_gate, castle_gens]:
+  //   Percival [81,90,234,248,491,504,612] · Artemis [90,100,260,275,545,560,680] · IOI [97,108,281,297,589,605,734]
+  //   Aitch [108,120,312,330,654,672,816] · Sho [122,135,351,371,736,756,918]. Rivals never take the Egg.
   NX.RIVALS = [
-    { name: 'Percival', color: '#4a9cff', at: [28, 61, 97, 118] },
-    { name: 'Artemis', color: '#ff4f8b', at: [33, 66, 104, 125] },
-    { name: 'IOI-655321', color: '#ff9b3d', at: [40, 80, 125, 150], corp: true },
-    { name: 'Aitch', color: '#ffd23f', at: [45, 92, 140, 170] },
-    { name: 'Sho', color: '#5be0a6', at: [52, 104, 160, 190] },
+    { name: 'Percival', color: '#4a9cff', paceMult: 0.90 },
+    { name: 'Artemis', color: '#ff4f8b', paceMult: 1.00 },
+    { name: 'IOI-655321', color: '#ff9b3d', paceMult: 1.08, corp: true },
+    { name: 'Aitch', color: '#ffd23f', paceMult: 1.20 },
+    { name: 'Sho', color: '#5be0a6', paceMult: 1.35 },
   ];
 
   NX.SHOP = [
@@ -371,7 +482,9 @@
     'Eat a Power Pellet in the Pac-Maze and the ghosts get very nervous.',
     'The Diamond Pickaxe mines through walls. Mazes become suggestions.',
     'Press M for the multiverse map. Tap a visited sector to warp there.',
-    'Sixers hunt gunters who hold keys. More keys, more suits.',
+    'Beat an arcade cabinet and its screen whispers a riddle. Match the world it describes to a colour in the map legend.',
+    'The Jade Key sits behind a data-moat. A Nimbus 2000, the Elytra or a Portal Gun gets you across.',
+    'When the HUD says "LV advised", believe it. Raid bosses and gate trials are the fastest XP around.',
     'Every fandom hides a raid boss. Beat them for relics — Thanos drops the Gauntlet.',
     'Don\'t blink near Weeping Angels. Keep facing them.',
     'Borg drones adapt to whatever weapon you spam. Mix it up.',

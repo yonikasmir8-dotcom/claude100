@@ -1,28 +1,39 @@
 // The multiverse: a (2r+1)×(2r+1) grid of sectors, each S×S tiles, generated lazily
-// from the seed. Fandom regions are Voronoi cells; the three key sectors are pinned.
+// from the seed. Fandom regions are Voronoi cells; the campaign sites (docs/CAMPAIGN.md §5)
+// — 9 cabinets, 3 keys, 3 gates, Anorak's Castle and its 3 shield pylons — are pinned.
 (() => {
   'use strict';
-  const NX = window.NX, C = NX.C, T = NX.T;
-  const S = C.world.sectorTiles, R = C.world.radius, HALF = S >> 1;
+  const NX = window.NX, C = NX.C, T = NX.T, CC = C.campaign;
+  const S = C.world.sectorTiles, R = C.world.radius, HALF = S >> 1, DEG = Math.PI / 180;
+  // Ring radii (tiles from the sector centre). Guardian/castle boss triggers live in game.js at 13 tiles.
+  const TRIGGER = 13, MOAT = [13, 13 + CC.moatWidth], WALL = CC.castleWall, FORCE = [CC.forceRadius, CC.forceRadius + CC.forceThickness];
+  const LAND = S - 2;         // jade key / castle warp landing row: on the south road, outside every ring
+  const cheb = (a, b) => Math.max(Math.abs(a.sx - b.sx), Math.abs(a.sy - b.sy));
+  // Chebyshev ring projection of a bearing θ at distance d.
+  const at = (a, d) => {
+    const c = Math.cos(a), s = Math.sin(a), m = Math.max(Math.abs(c), Math.abs(s));
+    return { sx: Math.round(c / m * d), sy: Math.round(s / m * d) };
+  };
+  const clueTheme = (act, i) => (NX.CAMPAIGN && NX.CAMPAIGN.acts && NX.CAMPAIGN.acts[act] && NX.CAMPAIGN.acts[act].clueThemes[i]) || null;
 
   const World = NX.World = {
     S, R, TS: C.world.tile,
     cache: new Map(),         // "sx,sy" -> { sx, sy, theme, tiles }
     mods: new Map(),          // "sx,sy" -> Map(localIndex -> tile)  (mined walls, broken blocks, eaten pellets)
     themeMemo: new Map(),
-    keySectors: {},           // keyId -> { sx, sy }
+    quest: null,              // { copper|jade|crystal: { clues: [{sx,sy}×3], key, gate }, castle: { sx, sy, generators: [{sx,sy}×3] } }
+    sites: [],                // [{ type: 'clue'|'key'|'gate'|'castle'|'generator', act, index, sx, sy }] — 19 of them
+    siteMap: new Map(),       // "sx,sy" -> site
+    keySectors: {},           // keyId -> { sx, sy } (=== quest[act].key)
     raidSectors: {},          // themeId -> { sx, sy, boss }
+    forceDown: false,         // derived from G.quest.generators by Game.start; generate() writes FORCE only while false
     _last: null,
 
     init() {
-      this.cache.clear(); this.themeMemo.clear(); this._last = null;
-      const a0 = NX.h01(7, 7, 7) * Math.PI * 2;
-      for (const id of NX.KEY_ORDER) {
-        const k = NX.KEYS[id], d = C.keys[id], a = a0 + k.angle;
-        const c = Math.cos(a), s = Math.sin(a), m = Math.max(Math.abs(c), Math.abs(s));
-        this.keySectors[id] = { sx: Math.round(c / m * d), sy: Math.round(s / m * d) };
-      }
-      // Each fandom's raid boss lives on a ring somewhere in that fandom's territory.
+      this.cache.clear(); this.themeMemo.clear(); this._last = null; this.forceDown = false;
+      this.placeSites();
+      this.themeMemo.clear();
+      // Each fandom's raid boss lives on a ring somewhere in that fandom's territory, clear of every campaign site.
       this.raidSectors = {};
       const taken = new Set();
       for (const theme of Object.keys(NX.RAIDS)) {
@@ -34,17 +45,148 @@
           for (let k = 0; k < n && !found; k++) {
             const { sx, sy } = ringPos(d, (k + off) % n);
             const key = sx + ',' + sy;
-            if (!taken.has(key) && !this.nearKey(sx, sy) && this.themeOf(sx, sy) === theme) found = { sx, sy };
+            if (!taken.has(key) && !this.nearSite(sx, sy) && this.themeOf(sx, sy) === theme) found = { sx, sy };
           }
         }
         if (found) { this.raidSectors[theme] = { ...found, boss: NX.RAIDS[theme].boss }; taken.add(found.sx + ',' + found.sy); }
       }
+      this.checkInvariants();
     },
 
-    nearKey(sx, sy) {
-      for (const id of NX.KEY_ORDER) { const k = this.keySectors[id]; if (Math.abs(k.sx - sx) <= 1 && Math.abs(k.sy - sy) <= 1) return true; }
+    // §5.1 — keys, cabinets, gates, castle, then pylons. Runs before any themeOf call (themeOf memoizes).
+    placeSites() {
+      this.sites = []; this.siteMap.clear(); this.keySectors = {};
+      const a0 = NX.h01(7, 7, 7) * Math.PI * 2, q = {};
+      const steps = (r) => Math.round((r[1] - r[0]) / 5) + 1;          // 5° steps across a [lo, hi] bearing range
+      const nb = steps(CC.clueBearing), ng = steps(CC.gateBearing);
+      // Keys first: naturalTheme (key ±1 → Voronoi) must see all three before cabinets read it.
+      NX.KEY_ORDER.forEach((act) => { q[act] = { clues: [], key: at(a0 + NX.KEYS[act].angle, CC.keyDist[act]), gate: null }; this.keySectors[act] = q[act].key; });
+      NX.KEY_ORDER.forEach((act, ai) => {
+        const th = a0 + NX.KEYS[act].angle;
+        CC.clueDist[act].forEach((d, i) => {
+          const want = clueTheme(act, i), sg = i % 2 ? -1 : 1, h = NX.hash(ai, i, 61) % nb;
+          let pos = null;
+          for (let k = 0; k < nb && !pos; k++) {
+            const p = at(th + sg * (CC.clueBearing[0] + ((h + k) % nb) * 5) * DEG, d);
+            let ok = true;
+            for (let j = -1; j <= 1 && ok; j++) for (let n = -1; n <= 1 && ok; n++) if (this.naturalTheme(p.sx + n, p.sy + j) === want) ok = false;
+            if (ok) pos = p;
+          }
+          q[act].clues.push(pos || at(th + sg * (CC.clueBearing[0] + h * 5) * DEG, d));
+        });
+        // Clue 2 sits at θ + b, so the gate goes to the other side: θ − g.
+        q[act].gate = at(th - (CC.gateBearing[0] + (NX.hash(ai, 67) % ng) * 5) * DEG, CC.gateDist[act]);
+      });
+      console.assert(CC.castleDist <= R - 2, 'castleDist must be ≤ world.radius − 2');
+      q.castle = { ...at(a0 + NX.KEYS.crystal.angle, CC.castleDist), generators: [] };
+      // Nudge collisions in priority order (keys, castle, gates, cabinets) so key regions stay put.
+      const placed = [];
+      const fits = (p) => !(p.sx === 0 && p.sy === 0) && this.inBounds(p.sx, p.sy) && placed.every((o) => cheb(o, p) >= 2);
+      const nudge = (p) => {
+        if (!fits(p)) {
+          for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, 1], [1, -1], [-1, -1]]) {
+            if (fits({ sx: p.sx + dx, sy: p.sy + dy })) { p.sx += dx; p.sy += dy; break; }
+          }
+        }
+        placed.push(p);
+      };
+      NX.KEY_ORDER.forEach((act) => nudge(q[act].key));
+      nudge(q.castle);
+      NX.KEY_ORDER.forEach((act) => nudge(q[act].gate));
+      NX.KEY_ORDER.forEach((act) => q[act].clues.forEach(nudge));
+      // Pylons: genOffsets rotated by a hashed start; keep the first 3 that fit (in bounds, ≤ R−1, ≥ 2 from every site).
+      const offs = CC.genOffsets, o0 = NX.hash(5, 4, 3) % offs.length;
+      for (let k = 0; k < offs.length && q.castle.generators.length < 3; k++) {
+        const [dx, dy] = offs[(o0 + k) % offs.length], p = { sx: q.castle.sx + dx, sy: q.castle.sy + dy };
+        if (this.dist(p.sx, p.sy) <= R - 1 && fits(p)) { q.castle.generators.push(p); placed.push(p); }
+      }
+      // Fallback (other seeds/radii): widen to the 2..4 rings around the castle.
+      for (let d = 2; d <= 4 && q.castle.generators.length < 3; d++) {
+        for (let k = 0; k < 8 * d && q.castle.generators.length < 3; k++) {
+          const r = ringPos(d, k), p = { sx: q.castle.sx + r.sx, sy: q.castle.sy + r.sy };
+          if (this.dist(p.sx, p.sy) <= R - 1 && fits(p)) { q.castle.generators.push(p); placed.push(p); }
+        }
+      }
+      this.quest = q;
+      const add = (type, act, index, p) => { const s = { type, act, index, sx: p.sx, sy: p.sy }; this.sites.push(s); this.siteMap.set(p.sx + ',' + p.sy, s); };
+      for (const act of NX.KEY_ORDER) {
+        q[act].clues.forEach((p, i) => add('clue', act, i, p));
+        add('key', act, null, q[act].key);
+        add('gate', act, null, q[act].gate);
+      }
+      add('castle', null, null, q.castle);
+      q.castle.generators.forEach((p, i) => add('generator', null, i, p));
+    },
+
+    checkInvariants() {
+      const q = this.quest, A = console.assert;
+      for (const act of NX.KEY_ORDER) {
+        A(CC.clueDist[act].every((d) => d < CC.gateDist[act]) && CC.gateDist[act] < CC.keyDist[act], 'clueDist < gateDist < keyDist: ' + act);
+      }
+      A(this.sites.length === 19 && q.castle.generators.length === 3, 'expected 19 campaign sites (3 pylons), got ' + this.sites.length);
+      A(this.siteMap.size === this.sites.length, 'two campaign sites share a sector');
+      for (const s of this.sites) A(this.inBounds(s.sx, s.sy) && !(s.sx === 0 && s.sy === 0), 'site out of bounds or on the hub', s);
+      for (let i = 0; i < this.sites.length; i++) for (let j = i + 1; j < this.sites.length; j++) {
+        A(cheb(this.sites[i], this.sites[j]) >= 2, 'campaign sites closer than 2 sectors', this.sites[i], this.sites[j]);
+      }
+      A(Object.keys(this.raidSectors).length === Object.keys(NX.RAIDS).length, 'expected ' + Object.keys(NX.RAIDS).length + ' raids, placed ' + Object.keys(this.raidSectors).length);
+      // §5.4 ring invariants
+      A(TRIGGER <= MOAT[0], 'guardian trigger must sit inside the moat');
+      A(TRIGGER < WALL[0] && WALL[0] < WALL[1] && WALL[1] <= FORCE[0], 'castle trigger < wall < forcefield');
+      A(FORCE[1] <= HALF - 3, 'forcefield must fit inside the sector');
+      A(LAND - HALF >= FORCE[1] && LAND - HALF >= MOAT[1], 'warp landing must sit outside the rings');
+    },
+
+    siteAt(sx, sy) { return this.siteMap.get(sx + ',' + sy) || null; },
+    // Chebyshev ≤ 1 of any campaign site (pylons and castle included).
+    nearSite(sx, sy) {
+      for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) if (this.siteMap.has((sx + i) + ',' + (sy + j))) return true;
       return false;
     },
+    nearKey(sx, sy) { return this.nearSite(sx, sy); },   // legacy alias
+
+    // Natural theme: key ±1 override → Voronoi. Ignores the cabinet and castle overrides (map shows the castle as this until revealed).
+    naturalTheme(sx, sy) {
+      if (sx === 0 && sy === 0) return 'hub';
+      let th = null;
+      for (const id of NX.KEY_ORDER) {
+        const k = this.keySectors[id];
+        if (k && Math.abs(k.sx - sx) <= 1 && Math.abs(k.sy - sy) <= 1) th = NX.KEYS[id].theme;
+      }
+      if (th) return th;
+      const rc = C.world.regionCells, cx = Math.floor(sx / rc), cy = Math.floor(sy / rc);
+      let best = Infinity;
+      for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) {
+        const gx = cx + i, gy = cy + j;
+        const px = (gx + NX.h01(gx, gy, 1)) * rc, py = (gy + NX.h01(gx, gy, 2)) * rc;
+        const d = (px - sx - 0.5) ** 2 + (py - sy - 0.5) ** 2;
+        if (d < best) { best = d; th = NX.THEME_LIST[NX.hash(gx, gy, 3) % NX.THEME_LIST.length]; }
+      }
+      return th;
+    },
+
+    // Shield down: rebuild the castle sector without the FORCE ring. Derived state — writes no mods.
+    dropForcefield() {
+      this.forceDown = true;
+      const c = this.quest && this.quest.castle;
+      if (!c) return;
+      const key = c.sx + ',' + c.sy;
+      this.cache.delete(key);
+      if (this._last && this._last.key === key) this._last = null;
+      if (NX.R3D && NX.R3D.ok && NX.R3D.refreshSector) NX.R3D.refreshSector(c.sx, c.sy);
+    },
+
+    // Warp landing (world px, tile centre). Jade key + castle: the south road outside the moat/forcefield;
+    // everywhere else just below the sector gate, as before.
+    landingPos(sx, sy) {
+      const s = this.siteAt(sx, sy);
+      let tx, ty;
+      if (s && (s.type === 'castle' || (s.type === 'key' && s.act === 'jade'))) { tx = sx * S + HALF; ty = sy * S + LAND; }
+      else { const g = this.gatePos(sx, sy); tx = sx * S + g.lx; ty = sy * S + g.ly + 2; }
+      const o = this.findOpen(tx, ty);
+      return { x: (o.tx + 0.5) * this.TS, y: (o.ty + 0.5) * this.TS };
+    },
+
     raidAt(sx, sy) {
       for (const th of Object.keys(this.raidSectors)) { const r = this.raidSectors[th]; if (r.sx === sx && r.sy === sy) return th; }
       return null;
@@ -55,36 +197,27 @@
     dist(sx, sy) { return Math.max(Math.abs(sx), Math.abs(sy)); },
 
     keyAt(sx, sy) {
-      for (const id of NX.KEY_ORDER) { const k = this.keySectors[id]; if (k.sx === sx && k.sy === sy) return id; }
-      return null;
+      const s = this.siteMap.get(sx + ',' + sy);
+      return s && s.type === 'key' ? s.act : null;
     },
 
+    // Priority: hub → castle → cabinet (that one sector) → key ±1 → Voronoi. Gates and pylons keep their natural theme.
     themeOf(sx, sy) {
       const key = sx + ',' + sy;
       let th = this.themeMemo.get(key);
       if (th) return th;
+      const s = this.siteMap.get(key);
       if (sx === 0 && sy === 0) th = 'hub';
-      else {
-        for (const id of NX.KEY_ORDER) {
-          const k = this.keySectors[id];
-          if (Math.abs(k.sx - sx) <= 1 && Math.abs(k.sy - sy) <= 1) th = NX.KEYS[id].theme;
-        }
-        if (!th) {
-          const rc = C.world.regionCells, cx = Math.floor(sx / rc), cy = Math.floor(sy / rc);
-          let best = Infinity;
-          for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) {
-            const gx = cx + i, gy = cy + j;
-            const px = (gx + NX.h01(gx, gy, 1)) * rc, py = (gy + NX.h01(gx, gy, 2)) * rc;
-            const d = (px - sx - 0.5) ** 2 + (py - sy - 0.5) ** 2;
-            if (d < best) { best = d; th = NX.THEME_LIST[NX.hash(gx, gy, 3) % NX.THEME_LIST.length]; }
-          }
-        }
-      }
+      else if (s && s.type === 'castle') th = 'castle';
+      else th = (s && s.type === 'clue' && clueTheme(s.act, s.index)) || this.naturalTheme(sx, sy);
       this.themeMemo.set(key, th);
       return th;
     },
 
-    gatePos(sx, sy) { return sx === 0 && sy === 0 ? { lx: HALF, ly: HALF + 6 } : { lx: HALF, ly: HALF }; },
+    gatePos(sx, sy) {
+      const c = this.quest && this.quest.castle;
+      return (sx === 0 && sy === 0) || (c && c.sx === sx && c.sy === sy) ? { lx: HALF, ly: HALF + 6 } : { lx: HALF, ly: HALF };
+    },
     gateWorld(sx, sy) {
       const g = this.gatePos(sx, sy);
       return { x: (sx * S + g.lx + 0.5) * this.TS, y: (sy * S + g.ly + 0.5) * this.TS };
@@ -189,6 +322,7 @@
     else if (th.gen === 'city') genCity(put, rnd, sx, sy);
     else if (th.gen === 'grid') genGrid(put, rnd);
     else if (th.gen === 'hub') genHub(put);
+    else if (th.gen === 'castle') genCastle(put, rnd);
     else genNatural(th, put, rnd, ox, oy);
 
     // Roads: a 3-wide cross through every sector meets the neighbours' crosses,
@@ -199,16 +333,47 @@
         if (get(HALF + w, i) !== T.PELLET) put(HALF + w, i, T.ROAD);
       }
       for (let j = -3; j <= 3; j++) for (let i = -3; i <= 3; i++) put(HALF + i, HALF + j, T.ROAD);
-      // Key and raid sectors get a clear boss arena.
-      if (World.keyAt(sx, sy) || World.raidAt(sx, sy)) {
-        for (let j = -11; j <= 11; j++) for (let i = -11; i <= 11; i++) {
-          if (i * i + j * j <= 121) put(HALF + i, HALF + j, (i * i + j * j > 100) ? T.DECOR : T.FLOOR);
-        }
-      }
+      // Raid sectors get a clear boss arena.
+      if (World.raidAt(sx, sy)) keyArena(put);
+      // Campaign site overlays go over every tile type (pellets, roads, walls…), after the roads.
+      const site = World.siteAt(sx, sy);
+      if (site) siteOverlay(site, put);
     }
     const g = World.gatePos(sx, sy);
-    put(g.lx, g.ly, T.GATE);
+    if (get(g.lx, g.ly) !== T.ALTAR) put(g.lx, g.ly, T.GATE);
     return { sx, sy, theme, tiles };
+  }
+
+  // Rings are measured with d = hypot(i, j) from the centre tile (HALF, HALF).
+  const ring = (put, r1, fn) => {
+    for (let j = -r1; j <= r1; j++) for (let i = -r1; i <= r1; i++) { const v = fn(Math.hypot(i, j), i, j); if (v != null) put(HALF + i, HALF + j, v); }
+  };
+  // The classic boss arena (r 11) for key guardians and raid bosses.
+  const keyArena = (put, r = 11) => ring(put, r, (d, i, j) => i * i + j * j <= r * r ? (i * i + j * j > (r - 1) * (r - 1) ? T.DECOR : T.FLOOR) : null);
+  // Floor disc of radius r with a one-tile decor rim.
+  const pad = (put, r) => ring(put, r, (d) => d < r ? T.FLOOR : d < r + 1 ? T.DECOR : null);
+
+  function siteOverlay(site, put) {
+    const A = CC.arena;
+    if (site.type === 'clue') pad(put, A.clue);
+    else if (site.type === 'generator') pad(put, A.generator);
+    else if (site.type === 'gate') {
+      pad(put, A.gate);
+      for (let k = 0; k < 8; k++) put(HALF + Math.round(Math.cos(k * Math.PI / 4) * A.gate), HALF + Math.round(Math.sin(k * Math.PI / 4) * A.gate), T.PROP);
+    } else if (site.type === 'key') {
+      keyArena(put, A.key);
+      // Jade: an island ringed by a data-moat (Nimbus 2000 / Elytra / Portal Gun to cross).
+      if (site.act === 'jade') ring(put, MOAT[1], (d) => d >= MOAT[0] && d < MOAT[1] ? T.WATER : null);
+    } else if (site.type === 'castle') {
+      ring(put, Math.max(FORCE[1], A.castle) + 1, (d, i, j) => {
+        if (d < A.castle) return T.FLOOR;
+        // Obsidian wall, open only where the south road passes; east/west/north road tiles become wall.
+        if (d >= WALL[0] && d < WALL[1]) return Math.abs(i) <= 1 && j > 0 ? T.ROAD : T.WALL;
+        if (d >= FORCE[0] && d < FORCE[1] && !World.forceDown) return T.FORCE;
+        return null;
+      });
+      put(HALF, HALF, T.ALTAR);
+    }
   }
 
   function genNatural(th, put, rnd, ox, oy) {
@@ -284,6 +449,11 @@
       }
     }
     for (let n = 0; n < 30; n++) put(Math.floor(rnd() * S), Math.floor(rnd() * S), T.DECOR);
+  }
+
+  // Anorak's Castle: obsidian floor with a few statues; walls, altar and forcefield come from siteOverlay.
+  function genCastle(put, rnd) {
+    for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) put(x, y, rnd() < 0.008 ? T.PROP : T.FLOOR);
   }
 
   function genHub(put) {

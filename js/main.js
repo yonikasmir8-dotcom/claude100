@@ -30,16 +30,19 @@
   const COLORS = ['#4a9cff', '#ff4f8b', '#ffd23f', '#5be0a6', '#b06aff', '#ff8a3a', '#e8e8e8', '#2a2a2a'];
   let suit = NX.store.get('nx_suit', COLORS[0]);
   const N = (2 * C.world.radius + 1) ** 2;
-  $('title-stats').textContent = `${NX.fmt(N)} sectors · ${NX.THEME_LIST.length} fandoms · ${Object.keys(NX.ENEMIES).length} enemy types · ${Object.keys(NX.WEAPONS).length} weapons · 1 Easter egg`;
+  $('title-stats').textContent = `${NX.fmt(N)} sectors · ${NX.THEME_LIST.length} fandoms · ${Object.keys(NX.ENEMIES).length} enemy types · ${Object.keys(NX.WEAPONS).length} weapons · 3 gates · 1 Easter egg`;
   $('avatar-name').value = NX.store.get('nx_name', '');
   $('swatches').innerHTML = COLORS.map((c) => `<button type="button" style="background:${c}" data-c="${c}" aria-label="Suit color ${c}" aria-pressed="${c === suit}"></button>`).join('');
   // Sculpt the core cast in the background while the title screen is up.
   const prewarm = () => {
     if (!use3D) return;
-    R3D.prewarm(['player:' + suit, 'curator', 'shop', 'garage', 'score', 'gunter:#4a9cff', 'gunter:#ff4f8b', 'gunter:#ffd23f', 'pk_coin', 'pk_heart', 'pk_pokeballs', 'pk_grenade', 'chest', 'egg', 'statue', 'tree_round:#2f8a3a', 'bush:#2f9a3c']);
-    R3D.prewarm(Object.keys(NX.ENEMIES).filter((k) => !NX.ENEMIES[k].boss));
+    // campaign sites: arcade cabinets + one gate door per act colour (models.js keys them 'gatedoor:<color>')
+    const gateColors = NX.CAMPAIGN ? NX.KEY_ORDER.map((a) => NX.CAMPAIGN.acts[a].color) : ['#e08a4a', '#3fcf8e', '#bdf4ff'];
+    R3D.prewarm(['player:' + suit, 'curator', 'shop', 'garage', 'score', 'gunter:#4a9cff', 'gunter:#ff4f8b', 'gunter:#ffd23f', 'pk_coin', 'pk_heart', 'pk_pokeballs', 'pk_grenade', 'chest', 'cabinet', ...gateColors.map((c) => 'gatedoor:' + c), 'egg', 'statue', 'tree_round:#2f8a3a', 'bush:#2f9a3c']);
+    R3D.prewarm(Object.keys(NX.ENEMIES).filter((k) => !NX.ENEMIES[k].boss));   // includes shieldgen
     R3D.prewarm(['pk_mushroom', 'pk_star', 'pk_extralife', 'pk_relic', 'pk_mount', 'pk_masterball', 'mount_delorean', 'mount_batmobile', 'mount_ecto1', 'mount_nimbus', 'mount_elytra']);
-    R3D.prewarm(Object.keys(NX.ENEMIES).filter((k) => NX.ENEMIES[k].boss));
+    R3D.prewarm(Object.keys(NX.ENEMIES).filter((k) => NX.ENEMIES[k].boss));    // includes ioi655321
+    R3D.prewarm(['anorak', 'pk_egg']);
   };
   prewarm();
   $('swatches').addEventListener('click', (e) => {
@@ -74,9 +77,9 @@
     UI.say('NEXUS OS', [
       `Avatar "${name}" online. Welcome to THE NEXUS — a world beyond worlds.`,
       touch
-        ? 'Left thumb: move. Right side: attack (auto-aim). Buttons: Poké Ball, grenade, swap weapon, ride, map.'
-        : 'WASD to move · Space/click to attack (aim with the mouse) · Q/R switch weapons · C Poké Ball · G grenade · V ride · M map · E talk.',
-      'Find THE CURATOR (purple robe) beside the golden altar to begin the Egg Hunt.',
+        ? 'Left thumb: move. Right side: attack (auto-aim). Buttons: Poké Ball, grenade, swap weapon, ride, map — and TALK beside people, arcade cabinets and gates.'
+        : 'WASD to move · Space/click to attack (aim with the mouse) · Q/R switch weapons · C Poké Ball · G grenade · V ride · M map · E talk / play a cabinet.',
+      'Find THE CURATOR (purple robe) beside the golden altar to begin the hunt. Three gates — copper, jade and crystal — stand between you and the Egg.',
     ]);
   });
   $('btn-continue').addEventListener('click', () => { if (use3D) R3D.reset(); if (Game.load()) { if (use3D) R3D.prewarm(['player:' + Game.G.color]); play(); } });
@@ -101,7 +104,7 @@
       : '<span class="empty">Beat raid bosses (☠ on the map) to earn relics.</span>';
     $('p-weapons').innerHTML = G.weapons.map((w) => `<button class="item" data-weapon="${w}" aria-pressed="${w === G.weapon}">${NX.WEAPONS[w].name}<small>${NX.WEAPONS[w].fandom}</small></button>`).join('')
       + `<span class="empty">${Object.keys(NX.WEAPONS).length - G.weapons.length} more hidden in chests across the fandoms.</span>`;
-    $('p-stats').textContent = `${G.name} · Level ${G.level} · ${Math.round(G.playTime / 60)} min · ${Game.discoveredCount()} sectors explored · ${G.kills} kills · ${G.deaths} deaths · best streak ${G.bestStreak} · v${C.version}`;
+    $('p-stats').textContent = `${G.name} · Level ${G.level} · ${Math.round(G.playTime / 60)} min · ${NX.KEY_ORDER.filter((k) => Game.isDone(k + '_gate')).length}/3 gates ·${Game.discoveredCount()} sectors explored · ${G.kills} kills · ${G.deaths} deaths · best streak ${G.bestStreak} · v${C.version}`;
   }
   $('p-pets').addEventListener('click', (e) => {
     const b = e.target.closest('[data-pet]'); if (!b) return;

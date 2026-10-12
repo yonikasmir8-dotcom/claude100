@@ -1,7 +1,7 @@
 // Feedback loop, part 1: capture.
 // - Telemetry records every play session automatically (where players go, what kills them,
-//   which weapons/fandoms they use, how far they get in the egg hunt...).
-// - Debriefs ask a few quick questions at key moments (death, key found, egg found, or any time).
+//   which weapons/fandoms they use, campaign milestone times + levels, trial starts/fails...).
+// - Debriefs ask a few quick questions at key moments (death, each gate opened, egg found, or any time).
 // - Both live in localStorage and export as ONE JSON file → feedback/inbox/ (see FEEDBACK_LOOP.md).
 (() => {
   'use strict';
@@ -69,7 +69,9 @@
 
   const MOMENT_TITLES = {
     death: 'Zeroed — quick debrief?',
-    key: 'Key secured — quick debrief?',
+    gate_copper: 'Copper Gate open — quick debrief?',
+    gate_jade: 'Jade Gate open — quick debrief?',
+    gate_crystal: 'Crystal Gate open — quick debrief?',
     egg: 'You found the Egg! Final debrief',
     manual: 'Send feedback to the Curator',
   };

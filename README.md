@@ -5,8 +5,29 @@ sectors**, **20 fandoms** (Star Wars, Marvel, DC, Pokémon, Mario, Zelda, Pac-Ma
 Ghostbusters, TRON × The Matrix, Harry Potter, Lord of the Rings, Jurassic Park, Halo, Star Trek,
 Doctor Who, Sonic, Stranger Things, Dragon Ball Z, Portal), and **one Easter egg**.
 
-Solve the Curator's riddles, beat the three key guardians, and open the Egg altar before the rival
-gunters (and IOI's Sixers) get there first.
+Follow the Curator's riddles through **The Three Gates** — a 10+ hour campaign across the multiverse —
+break IOI's shield around Anorak's Castle and take the Egg while rival gunters race you up the
+scoreboard.
+
+## The Three Gates (campaign)
+
+The design and every number live in [docs/CAMPAIGN.md](docs/CAMPAIGN.md); the knobs are in
+`config.js → campaign`. Target: a median of **~12 hours** from New Game to the Egg.
+
+1. **The Curator** at Nexus Prime starts the hunt. Each riddle names a *world*, never a sector: match it
+   to a colour on the map legend (M) and search inside the dashed circle. A quest arrow on the minimap
+   points the way.
+2. **Copper, Jade and Crystal acts.** Each act has three **arcade cabinets** (Clue Trials with a twist:
+   dimensional rifts, meteor showers, a Pac-Man pellet board), then a **key guardian** — the Dark Lord,
+   Ganon on an island ringed by a data-moat (fly over it or portal across), Blinky XL (eat a power
+   pellet first) — and finally a **Gate Trial** nearer home: waves plus an echo of the guardian, a
+   three-boss rush, and the Final Riddle.
+3. **Anorak's Castle** appears out past the edge of the map once the Crystal Gate opens. Destroy the
+   three IOI shield pylons around it, breach the walls, defeat IOI-655321, then speak with Anorak at the
+   altar and take the Egg.
+4. Every stage further out is tougher. The HUD shows `LV n advised` when you are under-levelled —
+   raid bosses and their relics are the best way to catch up. Prices in the shop scale with how far
+   the hunt has taken you.
 
 ## Play
 
@@ -44,13 +65,16 @@ No build step, no install — everything (including Three.js) is vendored.
 - **17 raid bosses** (Thanos, Darkseid, Voldemort, the Balrog, Godzilla…) with relics: Infinity
   Gauntlet, Mother Box, Mithril, Borg implant, Regeneration…
 - **World events**: kaiju landfall, dimensional rifts, IOI raids, meteor showers, supply drops.
-- **Rivals & scoreboard**, kill-streak announcer, pets/squad, save/continue.
+- **Rivals & scoreboard** (Percival, Artemis, IOI-655321, Aitch and Sho race you gate by gate),
+  kill-streak announcer, pets/squad, save/continue (older saves migrate to the campaign at the hub).
 
 ## Improving the game (feedback loop)
 
-Every session records telemetry and asks short debrief questions (on death, key found, egg found, or
-from the pause menu). Export → `feedback/inbox/` → `node feedback/summarize.mjs` → change knobs or
-content → ship. See **[FEEDBACK_LOOP.md](FEEDBACK_LOOP.md)**.
+Every session records telemetry — including when each campaign stage was completed and at what level —
+and asks short debrief questions (on death, after each gate opens, after the egg, or from the pause
+menu). Export → `feedback/inbox/` → `node feedback/summarize.mjs` → change knobs or content → ship. The
+summary's **Campaign pacing** table compares every act with its target time and names the knob to move.
+See **[FEEDBACK_LOOP.md](FEEDBACK_LOOP.md)**.
 
 ## Dev flags & tools
 
@@ -62,15 +86,16 @@ content → ship. See **[FEEDBACK_LOOP.md](FEEDBACK_LOOP.md)**.
 | File | What |
 |---|---|
 | `index.html`, `style.css` | Page shell, title, pause menu, debrief form |
-| `config.js` | Every balance / scale knob + version |
-| `js/content.js` | Fandoms, enemies, bosses, weapons, relics, mounts, events, dialogue |
-| `js/world.js` | Procedural multiverse (sectors, regions, key & raid placement) |
-| `js/game.js` | Simulation: player, weapons, AI, bosses, pets, loot, events, saves |
+| `config.js` | Every balance / scale knob (incl. `campaign` pacing) + version |
+| `docs/CAMPAIGN.md` | The Three Gates: campaign design + cross-file contract |
+| `js/content.js` | Fandoms, enemies, bosses, weapons, relics, mounts, events, campaign text |
+| `js/world.js` | Procedural multiverse (sectors, regions, campaign sites, Anorak's Castle, raids) |
+| `js/game.js` | Simulation: player, weapons, AI, bosses, quest stages & trials, pets, loot, events, saves |
 | `js/sdf.js` | SDF sculpting + Surface Nets mesher |
 | `js/models.js` | Every sculpted model (data) |
 | `js/render3d.js` | Three.js renderer |
 | `js/art.js` | 2D art (HUD icons, 2D fallback renderer) |
-| `js/ui.js` | HUD, minimap, multiverse map, dialogue, shops, touch controls |
+| `js/ui.js` | HUD (objective, trial bar, quest arrow), minimap, multiverse map, dialogue, shops, touch controls |
 | `js/main.js` | Boot, title, pause, main loop |
 | `feedback.js` | Telemetry + debrief capture/export |
 | `feedback/summarize.mjs` | Turns exports into `feedback/SUMMARY.md` |

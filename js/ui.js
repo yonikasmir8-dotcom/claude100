@@ -28,38 +28,61 @@
   // ---------- Dialogue & menus (promise based) ----------
   UI.say = (speaker, lines) => new Promise((res) => { UI.dialog = { speaker, lines: [].concat(lines), i: 0, shown: 0, res }; });
   UI.menu = (title, options, footer) => new Promise((res) => { UI.menuState = { title, options, i: 0, res, footer: footer || '', rects: [] }; });
+  // Crystal Gate: the Final Riddle. Esc / ✕ walks away without answering.
+  UI.riddle = async () => {
+    const fr = NX.CAMPAIGN.finalRiddle;
+    const i = await UI.menu(fr.q, fr.options.map((label) => ({ label })), 'Choose wisely · Esc to step back');
+    if (i >= 0) Game.answerRiddle(i);
+    return i;
+  };
+
+  // ---------- Campaign helpers (state lives in game.js; see docs/CAMPAIGN.md) ----------
+  const CAMP = () => NX.CAMPAIGN;
+  const fq = (s, target) => Game.fmtQuest(s, target);
+  const hasCrosser = (G) => G.mounts.includes('nimbus') || G.mounts.includes('elytra') || G.weapons.includes('portalgun');
+  const lifeCap = (G) => C.economy.maxExtraLives + (G.relics.amber ? 2 : 0);
+  const MOAT_HINT = 'The Jade Key sits on an island inside a data-moat. Fly over it — the Nimbus 2000 hides in a Wizarding Grounds chest, the Elytra drops from the Ender Dragon raid — or fold it in two with the Portal Gun from the Aperture cabinet\'s chest.';
+
+  function curatorLines(G) {
+    const st = Game.stageId(), cp = CAMP(), o = Game.objective();
+    if (st === 'intro') return [
+      `Welcome to THE NEXUS, ${G.name} — a world beyond worlds.`,
+      `${NX.fmt((2 * R + 1) ** 2)} sectors. ${NX.THEME_LIST.length} fandoms. One Easter egg.`,
+      ...cp.acts.copper.intro.map((l) => fq(l)),
+    ];
+    if (st === 'done') return ['You found it. The egg is yours.', 'But look at the map — raid bosses still roam, relics still wait. The NEXUS never ends.'];
+    if (st === 'jade_key' && !hasCrosser(G)) return [MOAT_HINT, o.text];
+    if (st === 'castle_gens') return [cp.castle.intro[1], o.text, 'Bring your squad. The pylons shoot back, and the Sixers guarding them are no joke.'];
+    if (st === 'castle') return ['The shield is down. Anorak\'s Castle is open — the south road runs straight through the gate.', o.text, 'IOI-655321 is inside. Don\'t let them reach the altar first.'];
+    if (st === 'egg') return ['You beat IOI. Now go — the castle altar is waiting, and so is its maker.', o.text];
+    return [o.riddle, o.text, 'Remember: the legend on your map (M) names every world by its colour.'].filter(Boolean);
+  }
 
   UI.talk = async (n) => {
     const G = Game.G;
     Sound.play('talk');
     switch (n.role) {
       case 'curator': {
-        const missing = NX.KEY_ORDER.filter((k) => !G.keys[k]);
-        if (!G.clues) {
-          await UI.say('The Curator', [
-            `Welcome to THE NEXUS, ${G.name} — a world beyond worlds.`,
-            `${NX.fmt((2 * R + 1) ** 2)} sectors. ${NX.THEME_LIST.length} fandoms. One Easter egg.`,
-            'Three keys open the altar behind me. Each is guarded. Listen closely...',
-            ...NX.KEY_ORDER.map((k) => `${NX.KEYS[k].name.toUpperCase()}: "${NX.KEYS[k].riddle}"`),
-            'I\'ve marked where to search on your map (M). Every fandom also hides a RAID BOSS guarding a relic. Rumours travel — talk to other gunters.',
-            'Oh, and IOI\'s Sixers want that egg too. Don\'t let them have it.',
-          ]);
-          G.clues = true;
-        } else if (G.egg) {
-          await UI.say('The Curator', ['You found it. The egg is yours.', 'But look at the map — raid bosses still roam, relics still wait. The NEXUS never ends.']);
-        } else if (!missing.length) {
-          await UI.say('The Curator', ['All three keys! Place them in the altar right behind me.']);
-        } else {
-          await UI.say('The Curator', [
-            `${3 - missing.length} of 3 keys. Still missing: ${missing.map((k) => NX.KEYS[k].name).join(', ')}.`,
-            ...missing.map((k) => `"${NX.KEYS[k].riddle}"`),
-          ]);
-        }
+        const first = Game.stageId() === 'intro';
+        await UI.say('The Curator', curatorLines(G));
+        if (first) Game.questEvent('curator');
+        break;
+      }
+      case 'anorak': {
+        const cp = CAMP();
+        if (!G.quest.outro) {
+          await UI.say('Anorak', cp.castle.outro.map((l) => fq(l)));
+          Game.questEvent('outro');
+        } else await UI.say('Anorak', [fq(cp.castle.after[G.egg ? 1 : 0])]);
         break;
       }
       case 'shop': {
         for (;;) {
-          const opts = NX.SHOP.map((s) => ({ label: `${s.label}`, right: `${C.economy.prices[s.id]}c`, sub: s.desc, disabled: G.coins < C.economy.prices[s.id] }));
+          const cap = lifeCap(G);
+          const opts = NX.SHOP.map((s) => {
+            const price = Game.price(s.id), full = s.id === 'extralife' && G.items.extralife >= cap;
+            return { label: `${s.label}`, right: `${price}c`, sub: full ? `Pockets full — ${G.items.extralife}/${cap} quarters${G.relics.amber ? '' : ' (the Mosquito in Amber holds 2 more)'}` : s.desc, disabled: full || G.coins < price };
+          });
           const i = await UI.menu('ARCADE SHOP', opts, `Coins: ${NX.fmt(G.coins)}  ·  Esc to leave`);
           if (i < 0) break;
           const err = Game.buy(NX.SHOP[i].id);
@@ -70,16 +93,18 @@
       case 'garage':
         if (G.mounts.includes('delorean')) await UI.say('Doc', ['Great Scott! Take care of her. Press V to drive — and hit 88 miles per hour!', 'Rumour says there\'s a Batmobile somewhere in Gotham, and a broom at the Wizarding Grounds that FLIES over walls.']);
         else {
-          const i = await UI.menu('DOC\'S GARAGE', [{ label: 'Buy the DeLorean', right: `${C.economy.prices.delorean}c`, sub: '2.8× speed. Runs enemies over. Press V to drive.', disabled: G.coins < C.economy.prices.delorean }, { label: 'Just looking' }], `Coins: ${NX.fmt(G.coins)}`);
+          const price = Game.price('delorean');
+          const i = await UI.menu('DOC\'S GARAGE', [{ label: 'Buy the DeLorean', right: `${price}c`, sub: '2.8× speed. Runs enemies over. Press V to drive.', disabled: G.coins < price }, { label: 'Just looking' }], `Coins: ${NX.fmt(G.coins)}`);
           if (i === 0) { const err = Game.buy('delorean'); if (err) UI.toast(err, '#ff6a6a'); }
         }
         break;
       case 'score': {
-        const rows = Game.rivalStatus();
-        rows.push({ name: `${G.name} (you)`, keys: Object.keys(G.keys).length, egg: G.egg, you: true });
-        rows.sort((a, b) => (b.egg - a.egg) || (b.keys - a.keys) || (a.you ? -1 : 1));
+        const short = CAMP().raceShort, p = Game.playerRaceProgress();
+        const rows = Game.rivalStatus().map((r) => Object.assign({}, r));
+        rows.push({ name: `${G.name} (you)`, progress: p, label: G.egg ? 'EGG FOUND' : short[p - 1] || 'Starting out', you: true });
+        rows.sort((a, b) => (b.progress - a.progress) || (a.you ? -1 : b.you ? 1 : 0));
         await UI.say('The Scoreboard', [
-          rows.map((r, i) => `${i + 1}. ${r.name} — ${r.egg ? 'EGG FOUND' : r.keys + ' key' + (r.keys === 1 ? '' : 's')}`).join('\n'),
+          rows.map((r, i) => `${i + 1}. ${r.name} — ${r.label} (${r.progress}/${short.length})`).join('\n'),
           `Your score: ${NX.fmt(G.score)} · Level ${G.level} · ${Game.discoveredCount()} sectors explored · ${G.kills} kills`,
         ]);
         break;
@@ -135,11 +160,11 @@
     const N = 2 * R + 1, cv = document.createElement('canvas');
     cv.width = N; cv.height = N;
     const c = cv.getContext('2d'), img = c.createImageData(N, N);
-    const scouter = Game.G.relics.scouter || Game.G.relics.motherbox;
+    const scouter = Game.G.relics.scouter || Game.G.relics.motherbox, circles = hintCircles();
     for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
-      const sx = x - R, sy = y - R, th = NX.THEMES[W.themeOf(sx, sy)], rgb = hexRgb(th.map);
+      const sx = x - R, sy = y - R, th = mapTheme(sx, sy), rgb = hexRgb(th.map);
       const disc = Game.isDiscovered(sx, sy);
-      const k = disc ? 1 : scouter ? 0.45 : 0.22, i = (y * N + x) * 4;
+      const k = disc ? 1 : scouter || circles.some((c) => inCircle(c, sx, sy)) ? 0.45 : 0.22, i = (y * N + x) * 4;
       img.data[i] = rgb[0] * k; img.data[i + 1] = rgb[1] * k; img.data[i + 2] = rgb[2] * k; img.data[i + 3] = 255;
     }
     c.putImageData(img, 0, 0);
@@ -167,11 +192,33 @@
     Input.hit('attack');
   }
   const canWarp = (sx, sy) => Game.isDiscovered(sx, sy) || Game.G.relics.motherbox;
+  // Until the Crystal Gate opens, the castle sector hides behind its natural colour.
+  const castleHidden = (sx, sy) => { const c = W.quest && W.quest.castle; return !!c && c.sx === sx && c.sy === sy && !Game.isDone('crystal_gate'); };
+  const mapTheme = (sx, sy) => NX.THEMES[castleHidden(sx, sy) ? W.naturalTheme(sx, sy) : W.themeOf(sx, sy)];
+  const hintCircles = () => Game.questMarkers().filter((m) => m.current && m.r > 0);
+  const inCircle = (c, sx, sy) => Math.hypot(sx - c.sx, sy - c.sy) <= c.r + 0.5;
 
-  function keyHint(id) {
-    const k = W.keySectors[id];
-    const j = (n) => (NX.hash(n, id.length, 77) % 5) - 2;
-    return { sx: k.sx + j(1), sy: k.sy + j(2) };
+  // Campaign site glyph on a dark disc (readable even when a sector is 4px wide).
+  function markIcon(ctx, m, x, y, r) {
+    const col = m.color || '#ffd23f';
+    ctx.fillStyle = 'rgba(8,8,20,0.9)'; ctx.beginPath(); ctx.arc(x, y, r + 1.5, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = col; ctx.lineWidth = 1.5; ctx.stroke();
+    if (m.done) { ctx.fillStyle = '#5bff9a'; ctx.font = `bold ${Math.round(r * 1.7)}px system-ui`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('✓', x, y + 0.5); return; }
+    ctx.fillStyle = col;
+    switch (m.kind) {
+      case 'key': Art.keyIcon(ctx, x - 1.5 * r / 14, y, col, r / 14); break;
+      case 'gate': ctx.lineWidth = Math.max(1.5, r * 0.3); ctx.beginPath(); ctx.arc(x, y, r * 0.55, 0, Math.PI * 2); ctx.stroke(); break;
+      case 'generator': ctx.beginPath(); ctx.moveTo(x, y - r * 0.75); ctx.lineTo(x + r * 0.6, y + r * 0.6); ctx.lineTo(x - r * 0.6, y + r * 0.6); ctx.closePath(); ctx.fill(); break;
+      case 'castle': {
+        const w = r * 0.7;
+        ctx.fillRect(x - w, y - r * 0.15, w * 2, r * 0.75);
+        for (let i = 0; i < 3; i++) ctx.fillRect(x - w + i * w * 0.8, y - r * 0.6, w * 0.4, r * 0.5);
+        break;
+      }
+      default: // clue cabinet
+        ctx.fillRect(x - r * 0.45, y - r * 0.7, r * 0.9, r * 1.4);
+        ctx.fillStyle = '#10101c'; ctx.fillRect(x - r * 0.3, y - r * 0.5, r * 0.6, r * 0.5);
+    }
   }
 
   function drawMap(ctx, VW, VH) {
@@ -190,16 +237,29 @@
     const cx = (sx) => map.x + (sx + R + 0.5) * cell, cy = (sy) => map.y + (sy + R + 0.5) * cell;
     // hub
     ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(cx(0), cy(0), Math.max(3, cell), 0, Math.PI * 2); ctx.fill();
-    // keys
-    const scouter = G.relics.scouter;
-    for (const id of NX.KEY_ORDER) {
-      if (G.keys[id]) continue;
-      const k = W.keySectors[id], col = NX.KEYS[id].color;
-      if (scouter || Game.isDiscovered(k.sx, k.sy)) Art.keyIcon(ctx, cx(k.sx) - 3, cy(k.sy), col, 0.9);
-      else if (G.clues) {
-        const h = keyHint(id);
-        ctx.strokeStyle = col; ctx.setLineDash([4, 3]); ctx.lineWidth = 2;
-        ctx.beginPath(); ctx.arc(cx(h.sx), cy(h.sy), cell * 3.5, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+    const scouter = G.relics.scouter, markers = Game.questMarkers();
+    // scouter: un-held key sectors (the guardian still waits for its cabinets)
+    if (scouter) for (const id of NX.KEY_ORDER) {
+      const k = W.keySectors[id];
+      if (!G.keys[id] && !markers.some((m) => m.sx === k.sx && m.sy === k.sy)) { ctx.globalAlpha = 0.6; Art.keyIcon(ctx, cx(k.sx) - 3, cy(k.sy), NX.KEYS[id].color, 0.8); ctx.globalAlpha = 1; }
+    }
+    // campaign: dashed hint circles, exact icons, ✓ for finished sites, dim future cabinets
+    const pulse = 0.6 + 0.4 * Math.sin(performance.now() / 220);
+    for (const m of markers) {
+      const x = cx(m.sx), y = cy(m.sy), col = m.color || '#ffd23f';
+      if (m.r > 0) {
+        ctx.strokeStyle = col; ctx.setLineDash([4, 3]); ctx.lineWidth = 2; ctx.globalAlpha = m.current ? 0.7 + 0.3 * pulse : 0.5;
+        ctx.beginPath(); ctx.arc(x, y, (m.r + 0.5) * cell, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1;
+      } else {
+        ctx.globalAlpha = m.done ? 0.8 : m.current ? 1 : 0.45;
+        markIcon(ctx, m, x, y, Math.max(4.5, cell * 1.3));
+        if (m.current) { ctx.strokeStyle = col; ctx.lineWidth = 1.5; ctx.globalAlpha = pulse; ctx.beginPath(); ctx.arc(x, y, Math.max(4.5, cell * 1.3) + 3, 0, Math.PI * 2); ctx.stroke(); }
+        ctx.globalAlpha = 1;
+      }
+      if (m.current && m.label) {
+        ctx.font = `bold ${Math.max(10, cell * 2)}px system-ui`; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+        const lw = ctx.measureText(m.label).width / 2, lx = clamp(x, map.x + lw, map.x + size - lw), ly = y + (m.r + 0.5) * cell + 6;
+        ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,0.85)'; ctx.strokeText(m.label, lx, ly); ctx.fillStyle = col; ctx.fillText(m.label, lx, ly);
       }
     }
     // raids
@@ -221,17 +281,18 @@
 
     // info panel
     const px = side ? map.x + size + 20 : map.x, py = side ? map.y : map.y + size + 12, pw = side ? VW - px - 20 : size;
-    const sx = map.cur.sx, sy = map.cur.sy, th = NX.THEMES[W.themeOf(sx, sy)], disc = Game.isDiscovered(sx, sy);
+    const sx = map.cur.sx, sy = map.cur.sy, th = mapTheme(sx, sy), disc = Game.isDiscovered(sx, sy);
     ctx.textAlign = 'left'; ctx.textBaseline = 'top';
     ctx.fillStyle = th.map; ctx.font = '900 17px system-ui, sans-serif'; ctx.fillText(disc || scouter ? th.name : '??? Unexplored', px, py);
     ctx.fillStyle = '#aab'; ctx.font = '13px system-ui, sans-serif';
     let y = py + 24;
-    const line = (t, col = '#aab') => { ctx.fillStyle = col; ctx.fillText(t, px, y); y += 18; };
+    const line = (t, col = '#aab') => { ctx.fillStyle = col; for (const l of wrap(ctx, t, pw)) { ctx.fillText(l, px, y); y += 18; } };
     line(`${disc || scouter ? th.fandom + ' · ' : ''}Sector ${sx}, ${sy} · ${W.dist(sx, sy)} from hub`);
     const raid = W.raidAt(sx, sy);
     if (raid && (G.revealed[raid] || scouter || disc)) line(`☠ Raid boss: ${NX.ENEMIES[NX.RAIDS[raid].boss].name}${G.raids[raid] ? ' (defeated)' : ''}`, '#ff8a8a');
     const keyHere = W.keyAt(sx, sy);
     if (keyHere && (scouter || disc)) line(`🔑 ${NX.KEYS[keyHere].name} guardian`, NX.KEYS[keyHere].color);
+    for (const m of markers) if (m.r === 0 && m.sx === sx && m.sy === sy && m.label) line(`${m.done ? '✓ ' : '◆ '}${m.label}`, m.color || '#ffd23f');
     y += 6;
     if (canWarp(sx, sy)) {
       map.warpRect = { x: px, y, w: 150, h: 34 };
@@ -243,8 +304,17 @@
     map.closeRect = { x: VW - 50, y: 10, w: 40, h: 36 };
     ctx.fillStyle = '#fff'; ctx.font = 'bold 24px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('✕', VW - 30, 28);
     ctx.textAlign = 'left'; ctx.textBaseline = 'top';
-    // legend
+    // current objective + the Curator's riddle
+    const o = Game.objective();
+    ctx.font = 'bold 13px system-ui, sans-serif'; line(o.text, '#ffd23f');
+    if (o.riddle) {
+      ctx.font = 'italic 12px system-ui, sans-serif'; ctx.fillStyle = '#dde';
+      for (const l of wrap(ctx, `“${o.riddle}”`, pw).slice(0, 8)) { ctx.fillText(l, px, y); y += 16; }
+    }
+    y += 8;
+    // legend: every fandom with its map colour (riddles name worlds, the map shows colours)
     if (side || VH - y > 120) {
+      ctx.font = 'bold 11px system-ui, sans-serif'; ctx.fillStyle = '#889'; ctx.fillText('MAP COLOURS', px, y); y += 16;
       ctx.font = '11px system-ui, sans-serif';
       const cols = side ? 2 : Math.max(2, Math.floor(pw / 150));
       const colW = pw / cols;
@@ -277,6 +347,7 @@
       else if (t === T.WATER) { r = 50; g = 110; b = 220; k = 0.8; }
       else if (t === T.VOID) k = 0;
       else if (t === T.GATE || t === T.ALTAR) { r = 255; g = 120; b = 255; k = 1; }
+      else if (T.FORCE != null && t === T.FORCE) { r = 255; g = 155; b = 61; k = 1; }
       img.data[i] = r * k; img.data[i + 1] = g * k; img.data[i + 2] = b * k; img.data[i + 3] = 255;
     }
     c.putImageData(img, 0, 0);
@@ -308,13 +379,15 @@
     ctx.fillStyle = '#ffd23f'; ctx.fillText(`● ${NX.fmt(G.coins)}`, 12, y);
     ctx.fillStyle = '#ccd'; ctx.fillText(`★ ${NX.fmt(G.score)}`, 90 * s, y);
     y += 20 * s;
-    // keys
+    // keys (lit once held) · ✓ once that act's gate is open
     NX.KEY_ORDER.forEach((k, i) => {
       ctx.globalAlpha = G.keys[k] ? 1 : 0.25;
       Art.keyIcon(ctx, 20 + i * 30 * s, y + 6, NX.KEYS[k].color, 0.9 * s);
     });
     ctx.globalAlpha = 1;
     if (G.egg) { ctx.fillStyle = '#fff3c4'; ctx.fillText('🥚', 20 + 3 * 30 * s, y - 2); }
+    ctx.font = `900 ${9 * s}px system-ui, sans-serif`; ctx.fillStyle = '#5bff9a';
+    NX.KEY_ORDER.forEach((k, i) => { if (Game.isDone(k + '_gate')) ctx.fillText('✓', 30 + i * 30 * s, y - 3); });
 
     // minimap
     mini.t -= dt; if (mini.t <= 0) { mini.t = 0.25; updateMinimap(); }
@@ -328,6 +401,7 @@
       if (e.kind === 'enemy') { ctx.fillStyle = e.def.boss ? '#ff0' : '#ff4a4a'; ctx.fillRect(ex - (e.def.boss ? 3 : 1), ey - (e.def.boss ? 3 : 1), e.def.boss ? 6 : 2.5, e.def.boss ? 6 : 2.5); }
       else if (e.kind === 'chest' && !e.open) { ctx.fillStyle = '#ffd23f'; ctx.fillRect(ex - 2, ey - 2, 4, 4); }
       else if (e.kind === 'npc') { ctx.fillStyle = '#fff'; ctx.fillRect(ex - 1.5, ey - 1.5, 3, 3); }
+      else if (e.kind === 'site') { ctx.fillStyle = (CAMP() && CAMP().acts[e.act] && CAMP().acts[e.act].color) || '#ff4fd8'; ctx.fillRect(ex - 2.5, ey - 2.5, 5, 5); }
       else if (e.kind === 'pet') { ctx.fillStyle = '#5bff9a'; ctx.fillRect(ex - 1.5, ey - 1.5, 3, 3); }
     }
     ctx.restore();
@@ -338,11 +412,33 @@
     ctx.font = `900 ${12 * s}px system-ui, sans-serif`; ctx.fillStyle = th.map; ctx.fillText(th.name, VW - 12, my + ms + 6);
     ctx.font = `${11 * s}px system-ui, sans-serif`; ctx.fillStyle = '#aab';
     ctx.fillText(`${th.fandom} · ${psx}, ${psy} · ${W.dist(psx, psy)} from hub`, VW - 12, my + ms + 22 * s);
-    const obj = objective();
-    if (obj) { ctx.fillStyle = '#ffd23f'; ctx.fillText(obj, VW - 12, my + ms + 38 * s); }
+    // objective (wrapped so it never runs into the hearts on a phone)
+    const obj = Game.objective();
+    let ty = my + ms + 38 * s;
+    if (obj && obj.text) {
+      ctx.fillStyle = '#ffd23f';
+      for (const l of wrap(ctx, obj.text, Math.min(VW * 0.6, 420))) { ctx.fillText(l, VW - 12, ty); ty += 14 * s; }
+    }
+    ty += 6 * s;
+    // quest arrow on the minimap rim, pointing at the target (hidden inside the target circle — same
+    // Chebyshev test game.js uses to switch the objective to 'Match the riddle to a map colour')
+    if (obj && obj.sx != null && Math.max(Math.abs(obj.sx - psx), Math.abs(obj.sy - psy)) > (obj.r || 0)) {
+      const a = Math.atan2((obj.sy + 0.5) * S * TS - P.y, (obj.sx + 0.5) * S * TS - P.x), c = Math.cos(a), sn = Math.sin(a);
+      const e = (ms / 2 - 8) / Math.max(Math.abs(c), Math.abs(sn)), ax = mx + ms / 2 + c * e, ay = my + ms / 2 + sn * e;
+      ctx.save(); ctx.translate(ax, ay); ctx.rotate(a);
+      ctx.fillStyle = '#ffd23f'; ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(8, 0); ctx.lineTo(-6, -6.5); ctx.lineTo(-2.5, 0); ctx.lineTo(-6, 6.5); ctx.closePath(); ctx.stroke(); ctx.fill();
+      ctx.restore();
+      const label = Game.fmtQuest('{n} {dir}', obj);
+      ctx.font = `bold ${10 * s}px system-ui, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      const lw = ctx.measureText(label).width + 8, lh = 14 * s;
+      const lx = clamp(ax - c * 20 * s, mx + lw / 2, mx + ms - lw / 2), ly = clamp(ay - sn * 16 * s, my + lh / 2, my + ms - lh / 2);
+      ctx.fillStyle = 'rgba(0,0,0,0.72)'; ctx.fillRect(lx - lw / 2, ly - lh / 2, lw, lh);
+      ctx.fillStyle = '#ffd23f'; ctx.fillText(label, lx, ly + 0.5);
+      ctx.textAlign = 'right'; ctx.textBaseline = 'top';
+    }
 
     // toasts
-    let ty = my + ms + 58 * s;
     UI.toasts = UI.toasts.filter((t) => (t.t += dt) < t.life);
     ctx.font = `bold ${12 * s}px system-ui, sans-serif`;
     for (const t of UI.toasts) {
@@ -364,6 +460,25 @@
       ctx.fillStyle = '#fff'; ctx.font = `900 ${12 * s}px system-ui`; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
       ctx.fillText(`${b.def.name}  ·  ${b.def.fandom}`, VW / 2, by + 11);
     });
+    // trial bar (under the boss bars) + the leave countdown
+    const tr = Game.trial();
+    if (tr) {
+      const pel = tr.twist === 'pellets' || (tr.kind === 'clue' && /^crystal_clue/.test(Game.stageId()));
+      const txt = pel ? `${tr.title} · ${tr.left} dots left` : `${tr.title} · Wave ${tr.wave}/${tr.waves}${tr.left != null ? ` · ${tr.left} left` : ''}`;
+      const by = Math.max(Input.touchUsed ? 48 * s : 0, 16 + Math.min(2, bosses.length) * 34 + 4), bh = 22 * s;
+      ctx.font = `900 ${12 * s}px system-ui, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      const tw = Math.min(VW - 24, ctx.measureText(txt).width + 24);
+      Art.rrect(ctx, VW / 2 - tw / 2, by, tw, bh, 8, 'rgba(10,10,30,0.82)');
+      ctx.strokeStyle = '#4ff3ff'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.roundRect(VW / 2 - tw / 2, by, tw, bh, 8); ctx.stroke();
+      ctx.fillStyle = '#4ff3ff'; ctx.fillText(txt, VW / 2, by + bh / 2, tw - 16);
+      if (tr.outT != null) {
+        const warn = `Back to the ${tr.kind === 'gate' ? 'gate' : 'cabinet'}! ${Math.max(0, Math.ceil(tr.outT))}`;
+        ctx.font = `900 ${22 * s}px system-ui, sans-serif`; ctx.lineWidth = 5; ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+        ctx.globalAlpha = 0.65 + 0.35 * Math.abs(Math.sin(performance.now() / 160));
+        ctx.strokeText(warn, VW / 2, by + bh + 20 * s); ctx.fillStyle = '#ff4a4a'; ctx.fillText(warn, VW / 2, by + bh + 20 * s);
+        ctx.globalAlpha = 1;
+      }
+    }
 
     // hotbar
     const slot = 36 * s, n = G.weapons.length, cur = G.weapons.indexOf(G.weapon);
@@ -387,7 +502,7 @@
       [`Poké Balls ${G.items.pokeballs}${G.items.masterballs ? ` + ${G.items.masterballs} Master` : ''}`, '#ff6a6a', 'C'],
       [`Grenades ${G.items.grenades}`, '#e8c040', 'G'],
     ];
-    if (G.items.extralife) items.push([`25¢ ×${G.items.extralife}`, '#c8ccd2', '']);
+    if (G.items.extralife) items.push([`25¢ ×${G.items.extralife}/${lifeCap(G)}`, '#c8ccd2', '']);
     if (G.mounts.length) items.push([P.mount ? NX.MOUNTS[P.mount].name : 'On foot', '#18e0ff', 'V']);
     if (G.relics.gauntlet) { const cdl = Math.ceil(90 - (G.playTime - G.snapAt)); items.push([cdl > 0 ? `SNAP ${cdl}s` : 'SNAP READY', '#c070ff', 'F']); }
     ctx.font = `bold ${12 * s}px system-ui`; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
@@ -453,16 +568,6 @@
     ctx.restore();
   }
 
-  function objective() {
-    const G = Game.G;
-    if (G.egg) return 'Egg found! Hunt raid bosses for relics.';
-    const missing = NX.KEY_ORDER.filter((k) => !G.keys[k]);
-    if (!G.clues) return '▶ Talk to the Curator at Nexus Prime';
-    if (!missing.length) return '▶ Return to the altar at Nexus Prime';
-    const k = missing[0], h = keyHint(k);
-    return `▶ ${NX.KEYS[k].name}: search near ${h.sx}, ${h.sy}`;
-  }
-
   // ---------- Weather ----------
   const drops = Array.from({ length: 90 }, () => ({ x: Math.random(), y: Math.random(), s: 0.5 + Math.random() }));
   function drawWeather(ctx, VW, VH, dt) {
@@ -514,26 +619,44 @@
   }
   function drawMenu(ctx, VW, VH) {
     const m = UI.menuState, s = hudScale(VW);
-    const w = Math.min(560, VW - 24), rowH = 46 * s, h = 70 + m.options.length * (rowH + 6) + 24;
-    const x = (VW - w) / 2, y = Math.max(10, (VH - h) / 2);
+    const w = Math.min(560, VW - 24), x = (VW - w) / 2;
+    // Title, labels and subs all wrap (the Final Riddle question is ~300 chars; phones are ~540 logical px wide).
+    const tf = `900 ${18 * s}px system-ui`, lf = `bold ${14 * s}px system-ui`, sf = `${11 * s}px system-ui`, rf = `900 ${14 * s}px system-ui`;
+    const tlh = 22 * s, llh = 18 * s, slh = 14 * s;
+    ctx.font = tf;
+    const tLines = wrap(ctx, m.title, w - 70);
+    const rows = m.options.map((o) => {
+      ctx.font = rf; const rw = o.right ? ctx.measureText(o.right).width + 16 : 0;
+      ctx.font = lf; const lab = wrap(ctx, String(o.label), w - 48 - rw);
+      ctx.font = sf; const sub = o.sub ? wrap(ctx, o.sub, w - 48 - rw) : [];
+      return { lab, sub, h: Math.max(46 * s, 14 + lab.length * llh + sub.length * slh) };
+    });
+    const headH = 28 + tLines.length * tlh;
+    const h = headH + rows.reduce((a, r) => a + r.h + 6, 0) + 30;
+    const y = Math.max(10, (VH - h) / 2);
     ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(0, 0, VW, VH);
     Art.rrect(ctx, x, y, w, h, 14, 'rgba(10,10,30,0.96)');
     ctx.strokeStyle = '#ff4fd8'; ctx.lineWidth = 2; ctx.beginPath(); ctx.roundRect(x, y, w, h, 14); ctx.stroke();
-    ctx.fillStyle = '#ff4fd8'; ctx.font = `900 ${18 * s}px system-ui`; ctx.textAlign = 'left'; ctx.textBaseline = 'top'; ctx.fillText(m.title, x + 18, y + 16);
+    ctx.fillStyle = '#ff4fd8'; ctx.font = tf; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+    tLines.forEach((l, i) => ctx.fillText(l, x + 18, y + 16 + i * tlh));
     ctx.fillStyle = '#fff'; ctx.font = 'bold 22px system-ui'; ctx.textAlign = 'right'; ctx.fillText('✕', x + w - 14, y + 12);
     m.closeRect = { x: x + w - 40, y: y + 6, w: 36, h: 32 };
     m.rects = [];
-    m.options.forEach((o, i) => {
-      const ry = y + 52 + i * (rowH + 6);
-      m.rects.push({ x: x + 12, y: ry, w: w - 24, h: rowH });
-      Art.rrect(ctx, x + 12, ry, w - 24, rowH, 8, i === m.i ? 'rgba(123,92,255,0.45)' : 'rgba(255,255,255,0.05)');
+    let ry = y + headH;
+    rows.forEach((r, i) => {
+      const o = m.options[i];
+      m.rects.push({ x: x + 12, y: ry, w: w - 24, h: r.h });
+      Art.rrect(ctx, x + 12, ry, w - 24, r.h, 8, i === m.i ? 'rgba(123,92,255,0.45)' : 'rgba(255,255,255,0.05)');
       ctx.globalAlpha = o.disabled ? 0.45 : 1;
-      ctx.textAlign = 'left'; ctx.fillStyle = '#fff'; ctx.font = `bold ${14 * s}px system-ui`; ctx.fillText(o.label, x + 24, ry + 7);
-      if (o.sub) { ctx.fillStyle = '#99a'; ctx.font = `${11 * s}px system-ui`; ctx.fillText(o.sub, x + 24, ry + 26 * s); }
-      if (o.right) { ctx.textAlign = 'right'; ctx.fillStyle = '#ffd23f'; ctx.font = `900 ${14 * s}px system-ui`; ctx.fillText(o.right, x + w - 24, ry + 14 * s); }
+      ctx.textAlign = 'left'; ctx.fillStyle = '#fff'; ctx.font = lf;
+      r.lab.forEach((l, j) => ctx.fillText(l, x + 24, ry + 7 + j * llh));
+      ctx.fillStyle = '#99a'; ctx.font = sf;
+      r.sub.forEach((l, j) => ctx.fillText(l, x + 24, ry + 9 + r.lab.length * llh + j * slh));
+      if (o.right) { ctx.textAlign = 'right'; ctx.fillStyle = '#ffd23f'; ctx.font = rf; ctx.fillText(o.right, x + w - 24, ry + r.h / 2 - 8 * s); }
       ctx.globalAlpha = 1;
+      ry += r.h + 6;
     });
-    ctx.fillStyle = '#889'; ctx.font = `${12 * s}px system-ui`; ctx.textAlign = 'left'; ctx.fillText(m.footer, x + 18, y + h - 22);
+    ctx.fillStyle = '#889'; ctx.font = `${12 * s}px system-ui`; ctx.textAlign = 'left'; ctx.fillText(m.footer, x + 18, y + h - 22, w - 36);
   }
 
   // ---------- Touch controls ----------
@@ -634,7 +757,7 @@
     Input.clear();
     window.Feedback.show({
       moment,
-      summary: `Lv ${G.level} · ${Object.keys(G.keys).length}/3 keys · ${Game.discoveredCount()} sectors · ${G.kills} kills · ${Math.round(G.playTime / 60)} min played`,
+      summary: `Lv ${G.level} · stage ${Game.stageId()} · ${NX.KEY_ORDER.filter((k) => Game.isDone(k + '_gate')).length}/3 gates · ${Game.discoveredCount()} sectors · ${G.kills} kills · ${Math.round(G.playTime / 60)} min played`,
     }, () => { UI.debriefOpen = false; Input.clear(); });
   };
   UI.victoryDone = async () => {
