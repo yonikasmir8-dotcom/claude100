@@ -1,7 +1,7 @@
 // Every balance / scale knob lives here so player feedback turns into small,
 // reviewable changes. FEEDBACK_LOOP.md maps feedback signals to these keys.
 window.NX_CONFIG = {
-  version: '0.1.0',
+  version: '0.2.0',
 
   world: {
     seed: 1985,

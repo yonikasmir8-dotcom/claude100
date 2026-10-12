@@ -882,7 +882,7 @@
         NX.UI.banner(`THE ${k.name.toUpperCase()}`, `${ACTS.filter((a) => G.keys[a]).length} of 3 keys · the ${actWord(act)} Gate awaits`, k.color);
         Sound.play('key'); shake(12);
         advance(act + '_key');
-        NX.UI.say('The Curator ◈ transmission', [Game.fmtQuest(CAMP.acts[act].gateIntro, W.quest[act].gate)]);
+        NX.UI.say('The Curator ◈ transmission', [Game.fmtQuest(CAMP.acts[act].gateIntro, W.quest[act].gate, W.quest[act].key)]);
         NX.UI.save();
         break;
       }
@@ -1107,7 +1107,8 @@
     if (id === 'egg') NX.UI.toast('Anorak is waiting at the altar.', '#ff2a4a', 5);
     // Under-levelled for what comes next? Point at a raid boss for XP.
     const o = Game.objective();
-    if (o.rec != null && G.level < o.rec - CC.recSlack) {
+    // (not during the first copper cabinets: a fresh LV1 gunter should fight the locals, not a raid boss)
+    if (o.rec != null && G.level < o.rec - CC.recSlack && stageIdx(id) >= stageIdx('copper_key')) {
       const r = Game.revealRumor();
       if (r) NX.UI.toast(`Word is ${r.boss} is near ${r.sx}, ${r.sy} — good XP.`, '#ffd23f', 6);
     }
@@ -1383,9 +1384,10 @@
   const clueCentre = (s) => ({ sx: s.sx + (NX.hash(s.sx, s.sy, 61) % 3) - 1, sy: s.sy + (NX.hash(s.sx, s.sy, 62) % 3) - 1 });
   const recLevel = (d) => Math.max(1, Math.round((CC.comfortHits * CC.avgBaseHit * (1 + C.world.dmgPerSector * d) - C.player.maxHp) / C.player.hpPerLevel + 1));
   Game.recLevel = recLevel;
-  Game.fmtQuest = (str, target) => {
+  // {n}/{dir} are measured from `from` (default: the player's sector) to `target` (default: the objective).
+  Game.fmtQuest = (str, target, from) => {
     if (str == null) return '';
-    const p = sectorOf(P.x, P.y);
+    const p = from || sectorOf(P.x, P.y);
     let t = target;
     if (!t) { const o = G ? Game.objective() : null; t = o && o.sx != null ? o : p; }
     const name = G ? G.name : 'Gunter';
@@ -1422,7 +1424,7 @@
       o.riddle = A.clues[2];
       if (st.act === 'jade' && !canCross()) { site = W.quest.jade.clues[2]; at(site); o.text = '▶ Cross the data-moat: Nimbus 2000 · Elytra · Portal Gun'; }
       else { const k = NX.KEYS[st.act]; at(site); o.text = `▶ Defeat ${NX.ENEMIES[k.boss].name} for the ${k.name}`; }
-    } else if (st.kind === 'gate') { at(site); o.text = `▶ Open the ${actWord(st.act)} Gate`; o.riddle = Game.fmtQuest(A.gateIntro, site); }
+    } else if (st.kind === 'gate') { at(site); o.text = `▶ Open the ${actWord(st.act)} Gate`; o.riddle = Game.fmtQuest(A.gateIntro, site, W.quest[st.act].key); }
     else if (id === 'castle_gens') { at(site); o.text = `▶ Destroy the IOI shield pylons (${G.quest.generators.filter(Boolean).length}/3)`; o.riddle = CAMP.castle.intro[1]; }
     else if (id === 'castle') { at(site); o.text = '▶ Breach Anorak’s Castle'; o.riddle = CAMP.castle.intro[2]; }
     else if (id === 'egg') { at(site); o.text = G.quest.outro ? '▶ Take the Egg' : '▶ Speak with Anorak'; }
@@ -1467,12 +1469,19 @@
   }
   function rivalsCheck() {
     if (G.egg) return;   // rivals never take the Egg; after yours, they stop reporting
-    const p = raceProgress();
+    const p = raceProgress(), news = [];
     for (const r of NX.RIVALS) {
       const was = G.rivals[r.name] || 0, now = rivalShown(r, p);
       if (now <= was) continue;
-      for (let j = was; j < now; j++) NX.UI.toast(`📡 ${r.name} ${CAMP.raceLabels[j]}!`, r.color, 5);
+      for (let j = was; j < now; j++) news.push([r, j]);
       G.rivals[r.name] = now;
+    }
+    // a burst (a fast player clamps several rivals at once) becomes one line per milestone
+    const byJ = new Map();
+    for (const [r, j] of news) (byJ.get(j) || byJ.set(j, []).get(j)).push(r);
+    for (const [j, rs] of byJ) {
+      if (rs.length < 3) for (const r of rs) NX.UI.toast(`📡 ${r.name} ${CAMP.raceLabels[j]}!`, r.color, 5);
+      else NX.UI.toast(`📡 ${rs.length} rivals ${CAMP.raceLabels[j].replace(/^is /, 'are ')}!`, rs[0].color, 5);
     }
   }
   function scoreboardCheck() {
