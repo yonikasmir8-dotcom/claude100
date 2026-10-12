@@ -26,7 +26,13 @@
   UI.save = () => Game.save();
 
   // ---------- Dialogue & menus (promise based) ----------
-  UI.say = (speaker, lines) => new Promise((res) => { UI.dialog = { speaker, lines: [].concat(lines), i: 0, shown: 0, res }; });
+  // A say() that arrives while another dialog is open (a transmission mid-conversation) queues
+  // behind it, so every awaited say() still resolves.
+  const sayQueue = [];
+  UI.say = (speaker, lines) => new Promise((res) => {
+    const d = { speaker, lines: [].concat(lines).filter((l) => l != null && l !== '').map(String), i: 0, shown: 0, res };
+    if (!d.lines.length) res(); else if (UI.dialog) sayQueue.push(d); else UI.dialog = d;
+  });
   UI.menu = (title, options, footer) => new Promise((res) => { UI.menuState = { title, options, i: 0, res, footer: footer || '', rects: [] }; });
   // Crystal Gate: the Final Riddle. Esc / ✕ walks away without answering.
   UI.riddle = async () => {
@@ -40,7 +46,7 @@
   const CAMP = () => NX.CAMPAIGN;
   const fq = (s, target) => Game.fmtQuest(s, target);
   const hasCrosser = (G) => G.mounts.includes('nimbus') || G.mounts.includes('elytra') || G.weapons.includes('portalgun');
-  const lifeCap = (G) => C.economy.maxExtraLives + (G.relics.amber ? 2 : 0);
+  const lifeCap = (G) => (Game.extraLifeCap ? Game.extraLifeCap() : C.economy.maxExtraLives + (G.relics.amber ? 2 : 0));
   const MOAT_HINT = 'The Jade Key sits on an island inside a data-moat. Fly over it — the Nimbus 2000 hides in a Wizarding Grounds chest, the Elytra drops from the Ender Dragon raid — or fold it in two with the Portal Gun from the Aperture cabinet\'s chest.';
 
   function curatorLines(G) {
@@ -128,7 +134,7 @@
     d.shown = Math.min(line.length, d.shown + dt * 70);
     if (Input.hit('interact') || Input.hit('attack') || Input.hit('click') || Input.hit('pause')) {
       if (d.shown < line.length) d.shown = line.length;
-      else if (++d.i >= d.lines.length) { UI.dialog = null; d.res(); }
+      else if (++d.i >= d.lines.length) { UI.dialog = sayQueue.shift() || null; d.res(); }
       else { d.shown = 0; Sound.play('talk'); }
     }
   }
@@ -221,6 +227,34 @@
     }
   }
 
+  function mapLabel(ctx, text, x, y, col, size) {
+    ctx.font = `bold ${Math.max(10, map.cell * 2)}px system-ui`; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    const lw = ctx.measureText(text).width / 2, lx = clamp(x, map.x + lw, map.x + size - lw);
+    ctx.lineJoin = 'round'; ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,0.85)'; ctx.strokeText(text, lx, y); ctx.fillStyle = col; ctx.fillText(text, lx, y);
+  }
+  // Search lens: the current hint circle magnified in the map corner farthest from it, so the colour
+  // of a single sector (a riddle's world) can actually be read when the whole map is 4 px a sector.
+  function drawLens(ctx, hc, size) {
+    const k = hc.r + 2, n = 2 * k + 1, lc = Math.max(10, map.cell * 3), ls = n * lc, col = hc.color || '#ffd23f';
+    const lx = hc.sx > 0 ? map.x + 8 : map.x + size - ls - 8, ly = hc.sy > 0 ? map.y + 8 : map.y + size - ls - 26;
+    Art.rrect(ctx, lx - 4, ly - 4, ls + 8, ls + 26, 6, 'rgba(4,4,16,0.92)');
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(map.base, hc.sx - k + R, hc.sy - k + R, n, n, lx, ly, ls, ls);
+    ctx.imageSmoothingEnabled = true;
+    ctx.strokeStyle = 'rgba(0,0,0,0.25)'; ctx.lineWidth = 1; ctx.beginPath();
+    for (let i = 1; i < n; i++) { ctx.moveTo(lx + i * lc, ly); ctx.lineTo(lx + i * lc, ly + ls); ctx.moveTo(lx, ly + i * lc); ctx.lineTo(lx + ls, ly + i * lc); }
+    ctx.stroke();
+    ctx.save(); ctx.beginPath(); ctx.rect(lx, ly, ls, ls); ctx.clip();
+    ctx.strokeStyle = col; ctx.setLineDash([5, 4]); ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(lx + ls / 2, ly + ls / 2, (hc.r + 0.5) * lc, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+    const P = Game.P, px = Math.floor(P.x / TS / S) - hc.sx + k, py = Math.floor(P.y / TS / S) - hc.sy + k;
+    if (px >= 0 && py >= 0 && px < n && py < n) { ctx.fillStyle = '#4ff3ff'; ctx.beginPath(); ctx.arc(lx + (px + 0.5) * lc, ly + (py + 0.5) * lc, lc * 0.3, 0, Math.PI * 2); ctx.fill(); }
+    ctx.restore();
+    ctx.strokeStyle = col; ctx.lineWidth = 1.5; ctx.strokeRect(lx - 0.5, ly - 0.5, ls + 1, ls + 1);
+    ctx.fillStyle = col; ctx.font = 'bold 11px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    ctx.fillText('SEARCH AREA', lx + ls / 2, ly + ls + 5);
+  }
+
   function drawMap(ctx, VW, VH) {
     const G = Game.G, N = 2 * R + 1;
     ctx.fillStyle = 'rgba(4,4,16,0.94)'; ctx.fillRect(0, 0, VW, VH);
@@ -256,12 +290,11 @@
         if (m.current) { ctx.strokeStyle = col; ctx.lineWidth = 1.5; ctx.globalAlpha = pulse; ctx.beginPath(); ctx.arc(x, y, Math.max(4.5, cell * 1.3) + 3, 0, Math.PI * 2); ctx.stroke(); }
         ctx.globalAlpha = 1;
       }
-      if (m.current && m.label) {
-        ctx.font = `bold ${Math.max(10, cell * 2)}px system-ui`; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-        const lw = ctx.measureText(m.label).width / 2, lx = clamp(x, map.x + lw, map.x + size - lw), ly = y + (m.r + 0.5) * cell + 6;
-        ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,0.85)'; ctx.strokeText(m.label, lx, ly); ctx.fillStyle = col; ctx.fillText(m.label, lx, ly);
-      }
+      if (m.current && m.label && m.kind !== 'generator') mapLabel(ctx, m.label, x, y + (m.r > 0 ? (m.r + 0.5) * cell : Math.max(4.5, cell * 1.3) + 3) + 5, col, size);
     }
+    // the three pylons sit 2–3 sectors apart: one shared label instead of three overlapping ones
+    const gens = markers.filter((m) => m.kind === 'generator' && m.current);
+    if (gens.length) mapLabel(ctx, `IOI Shield Pylons ${markers.filter((m) => m.kind === 'generator' && m.done).length}/3`, gens.reduce((a, m) => a + cx(m.sx), 0) / gens.length, Math.max(...gens.map((m) => cy(m.sy))) + Math.max(4.5, cell * 1.3) + 7, '#ff9b3d', size);
     // raids
     for (const th of Object.keys(W.raidSectors)) {
       const r = W.raidSectors[th];
@@ -278,6 +311,8 @@
     // cursor
     ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
     ctx.strokeRect(map.x + (map.cur.sx + R) * cell - 1, map.y + (map.cur.sy + R) * cell - 1, cell + 2, cell + 2);
+    const hc = markers.find((m) => m.current && m.r > 0);
+    if (hc) drawLens(ctx, hc, size);
 
     // info panel
     const px = side ? map.x + size + 20 : map.x, py = side ? map.y : map.y + size + 12, pw = side ? VW - px - 20 : size;
@@ -316,7 +351,7 @@
     if (side || VH - y > 120) {
       ctx.font = 'bold 11px system-ui, sans-serif'; ctx.fillStyle = '#889'; ctx.fillText('MAP COLOURS', px, y); y += 16;
       ctx.font = '11px system-ui, sans-serif';
-      const cols = side ? 2 : Math.max(2, Math.floor(pw / 150));
+      const cols = Math.max(2, Math.min(4, Math.floor(pw / 170)));
       const colW = pw / cols;
       NX.THEME_LIST.forEach((k, i) => {
         const lx = px + (i % cols) * colW, ly = y + Math.floor(i / cols) * 16;
@@ -354,11 +389,16 @@
   }
 
   // ---------- HUD ----------
-  function hudScale(VW) { return clamp(VW / 900, 0.7, 1.15); }
+  // Phones get a ~540 px wide logical view at ×0.72 zoom, so text under ×0.9 becomes unreadable.
+  function hudScale(VW) { return clamp(VW / 900, 0.9, 1.15); }
+  // dialogs and menus: larger type on narrow views (they have the whole screen height to grow into)
+  const textScale = (VW) => (VW < 720 ? 1.15 : hudScale(VW));
 
   function drawHUD(ctx, VW, VH, dt) {
     const G = Game.G, P = Game.P, s = hudScale(VW);
     ctx.save();
+    // dark outline keeps HUD text readable over bright sectors (snow, desert, Portal's white labs)
+    const ink = (t, x, yy, col) => { ctx.lineJoin = 'round'; ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,0.6)'; ctx.strokeText(t, x, yy); ctx.fillStyle = col; ctx.fillText(t, x, yy); };
     // hearts
     const mh = Game.maxHp(), hearts = Math.ceil(mh / 2), perRow = 10;
     for (let i = 0; i < hearts; i++) {
@@ -371,13 +411,13 @@
     if (P.overshield > 0) { ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(12, y - 6, 80, 5); ctx.fillStyle = '#ffd23f'; ctx.fillRect(12, y - 6, 80 * P.overshield / 4, 5); y += 4; }
     // level + xp
     ctx.font = `900 ${13 * s}px system-ui, sans-serif`; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
-    ctx.fillStyle = '#5bff9a'; ctx.fillText(`LV ${G.level}`, 12, y);
+    ink(`LV ${G.level}`, 12, y, '#5bff9a');
     const xw = 110 * s;
     ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(50 * s, y + 4, xw, 6);
     ctx.fillStyle = '#5bff9a'; ctx.fillRect(50 * s, y + 4, xw * clamp(G.xp / Game.xpNeed(), 0, 1), 6);
     y += 18 * s;
-    ctx.fillStyle = '#ffd23f'; ctx.fillText(`● ${NX.fmt(G.coins)}`, 12, y);
-    ctx.fillStyle = '#ccd'; ctx.fillText(`★ ${NX.fmt(G.score)}`, 90 * s, y);
+    ink(`● ${NX.fmt(G.coins)}`, 12, y, '#ffd23f');
+    ink(`★ ${NX.fmt(G.score)}`, 90 * s, y, '#ccd');
     y += 20 * s;
     // keys (lit once held) · ✓ once that act's gate is open
     NX.KEY_ORDER.forEach((k, i) => {
@@ -409,15 +449,15 @@
     ctx.strokeStyle = 'rgba(255,255,255,0.4)'; ctx.lineWidth = 1; ctx.strokeRect(mx - 0.5, my - 0.5, ms + 1, ms + 1);
     const psx = Math.floor(P.x / TS / S), psy = Math.floor(P.y / TS / S), th = NX.THEMES[W.themeOf(psx, psy)];
     ctx.textAlign = 'right'; ctx.textBaseline = 'top';
-    ctx.font = `900 ${12 * s}px system-ui, sans-serif`; ctx.fillStyle = th.map; ctx.fillText(th.name, VW - 12, my + ms + 6);
-    ctx.font = `${11 * s}px system-ui, sans-serif`; ctx.fillStyle = '#aab';
-    ctx.fillText(`${th.fandom} · ${psx}, ${psy} · ${W.dist(psx, psy)} from hub`, VW - 12, my + ms + 22 * s);
+    ctx.font = `900 ${12 * s}px system-ui, sans-serif`; ink(th.name, VW - 12, my + ms + 6, th.map);
+    ctx.font = `${11 * s}px system-ui, sans-serif`;
+    ink(`${th.fandom} · ${psx}, ${psy} · ${W.dist(psx, psy)} from hub`, VW - 12, my + ms + 22 * s, '#c4c4d4');
     // objective (wrapped so it never runs into the hearts on a phone)
     const obj = Game.objective();
     let ty = my + ms + 38 * s;
     if (obj && obj.text) {
-      ctx.fillStyle = '#ffd23f';
-      for (const l of wrap(ctx, obj.text, Math.min(VW * 0.6, 420))) { ctx.fillText(l, VW - 12, ty); ty += 14 * s; }
+      ctx.font = `bold ${12 * s}px system-ui, sans-serif`;
+      for (const l of wrap(ctx, obj.text, Math.min(VW * 0.6, 420))) { ink(l, VW - 12, ty, '#ffd23f'); ty += 15 * s; }
     }
     ty += 6 * s;
     // quest arrow on the minimap rim, pointing at the target (hidden inside the target circle — same
@@ -451,10 +491,12 @@
     }
     ctx.globalAlpha = 1;
 
-    // boss bar
-    const bosses = Game.bossList();
+    // boss bar (below the MAP / pause buttons on touch)
+    const bosses = Game.bossList(), top0 = Input.touchUsed ? 34 * s : 0;
+    let topEnd = 0;   // bottom of the boss/trial stack: banners start below it
     bosses.slice(0, 2).forEach((b, i) => {
-      const bw = Math.min(460, VW - 340), bx = VW / 2 - bw / 2, by = 16 + i * 34;
+      const bw = Math.min(460, VW - 340), bx = VW / 2 - bw / 2, by = top0 + 16 + i * 34;
+      topEnd = by + 24;
       ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(bx - 2, by + 12, bw + 4, 12);
       ctx.fillStyle = b.def.color || '#ff3030'; ctx.fillRect(bx, by + 14, bw * clamp(b.hp / b.maxHp, 0, 1), 8);
       ctx.fillStyle = '#fff'; ctx.font = `900 ${12 * s}px system-ui`; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
@@ -463,9 +505,9 @@
     // trial bar (under the boss bars) + the leave countdown
     const tr = Game.trial();
     if (tr) {
-      const pel = tr.twist === 'pellets' || (tr.kind === 'clue' && /^crystal_clue/.test(Game.stageId()));
-      const txt = pel ? `${tr.title} · ${tr.left} dots left` : `${tr.title} · Wave ${tr.wave}/${tr.waves}${tr.left != null ? ` · ${tr.left} left` : ''}`;
-      const by = Math.max(Input.touchUsed ? 48 * s : 0, 16 + Math.min(2, bosses.length) * 34 + 4), bh = 22 * s;
+      const txt = tr.twist === 'pellets' ? `${tr.title} · ${tr.left} dots left` : `${tr.title} · Wave ${tr.wave}/${tr.waves}${tr.left != null ? ` · ${tr.left} left` : ''}`;
+      const by = top0 + 20 + Math.min(2, bosses.length) * 34, bh = 22 * s;
+      topEnd = by + bh + (tr.outT != null ? 34 * s : 0);
       ctx.font = `900 ${12 * s}px system-ui, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       const tw = Math.min(VW - 24, ctx.measureText(txt).width + 24);
       Art.rrect(ctx, VW / 2 - tw / 2, by, tw, bh, 8, 'rgba(10,10,30,0.82)');
@@ -493,9 +535,10 @@
       if (idx < 9) { ctx.fillStyle = '#aab'; ctx.font = `bold ${9 * s}px system-ui`; ctx.textAlign = 'left'; ctx.textBaseline = 'top'; ctx.fillText(idx + 1, x + 3, hbY + 2); }
     }
     const w = NX.WEAPONS[G.weapon];
-    ctx.fillStyle = '#fff'; ctx.font = `900 ${12 * s}px system-ui`; ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
-    ctx.fillText(`${w.name}`, 12, hbY - 4);
-    ctx.fillStyle = '#889'; ctx.font = `${10 * s}px system-ui`; ctx.fillText(Input.touchUsed ? w.fandom : `${w.fandom}  ·  Q/R or 1-9 to switch`, 12 + ctx.measureText(w.name).width * 1.25 + 8, hbY - 5);
+    ctx.font = `900 ${12 * s}px system-ui`; ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+    ink(`${w.name}`, 12, hbY - 4, '#fff');
+    const wx = 12 + ctx.measureText(w.name).width + 8;
+    ctx.font = `${10 * s}px system-ui`; ink(Input.touchUsed ? w.fandom : `${w.fandom}  ·  Q/R or 1-9 to switch`, wx, hbY - 5, '#aab');
 
     // consumables row
     const items = [
@@ -538,9 +581,11 @@
 
     // banners
     UI.banners = UI.banners.filter((b) => (b.t += dt) < b.life);
+    // narrow (portrait) views: the toast column spans most of the width, so banners go below it
+    const bannerTop = Math.max(VH * (VW < 720 ? 0.3 : 0.16), topEnd + 24 * s);
     UI.banners.forEach((b, i) => {
       const a = Math.min(1, b.t * 4, (b.life - b.t) * 2);
-      const by = VH * 0.16 + i * 54 * s;
+      const by = bannerTop + i * 54 * s;
       ctx.globalAlpha = a;
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.font = `900 ${Math.min(30 * s, VW / Math.max(12, b.title.length) * 1.6)}px system-ui, sans-serif`;
@@ -602,7 +647,7 @@
     return out;
   }
   function drawDialog(ctx, VW, VH) {
-    const d = UI.dialog, s = hudScale(VW);
+    const d = UI.dialog, s = textScale(VW);
     const w = Math.min(720, VW - 24), x = (VW - w) / 2;
     ctx.font = `${15 * s}px system-ui, sans-serif`;
     const lines = wrap(ctx, d.lines[d.i].slice(0, Math.floor(d.shown)), w - 36);
@@ -618,18 +663,20 @@
     ctx.fillStyle = '#667'; ctx.font = `${10 * s}px system-ui`; ctx.textAlign = 'right'; ctx.fillText(`${d.i + 1}/${d.lines.length}`, x + w - 14, y + 12);
   }
   function drawMenu(ctx, VW, VH) {
-    const m = UI.menuState, s = hudScale(VW);
+    const m = UI.menuState, s = textScale(VW);
     const w = Math.min(560, VW - 24), x = (VW - w) / 2;
     // Title, labels and subs all wrap (the Final Riddle question is ~300 chars; phones are ~540 logical px wide).
-    const tf = `900 ${18 * s}px system-ui`, lf = `bold ${14 * s}px system-ui`, sf = `${11 * s}px system-ui`, rf = `900 ${14 * s}px system-ui`;
-    const tlh = 22 * s, llh = 18 * s, slh = 14 * s;
+    const long = m.title.length > 80;   // a question, not a heading: lighter and a touch smaller
+    const tf = long ? `600 ${16 * s}px system-ui` : `900 ${18 * s}px system-ui`, lf = `bold ${14 * s}px system-ui`, sf = `${11 * s}px system-ui`, rf = `900 ${14 * s}px system-ui`;
+    const tlh = (long ? 21 : 22) * s, llh = 18 * s, slh = 14 * s;
     ctx.font = tf;
     const tLines = wrap(ctx, m.title, w - 70);
     const rows = m.options.map((o) => {
       ctx.font = rf; const rw = o.right ? ctx.measureText(o.right).width + 16 : 0;
       ctx.font = lf; const lab = wrap(ctx, String(o.label), w - 48 - rw);
       ctx.font = sf; const sub = o.sub ? wrap(ctx, o.sub, w - 48 - rw) : [];
-      return { lab, sub, h: Math.max(46 * s, 14 + lab.length * llh + sub.length * slh) };
+      const ch = lab.length * llh + (sub.length ? 2 + sub.length * slh : 0);
+      return { lab, sub, ch, h: Math.max(46 * s, 14 + ch) };
     });
     const headH = 28 + tLines.length * tlh;
     const h = headH + rows.reduce((a, r) => a + r.h + 6, 0) + 30;
@@ -648,10 +695,11 @@
       m.rects.push({ x: x + 12, y: ry, w: w - 24, h: r.h });
       Art.rrect(ctx, x + 12, ry, w - 24, r.h, 8, i === m.i ? 'rgba(123,92,255,0.45)' : 'rgba(255,255,255,0.05)');
       ctx.globalAlpha = o.disabled ? 0.45 : 1;
+      const ty = ry + (r.h - r.ch) / 2;   // label (+ sub) centred in the row
       ctx.textAlign = 'left'; ctx.fillStyle = '#fff'; ctx.font = lf;
-      r.lab.forEach((l, j) => ctx.fillText(l, x + 24, ry + 7 + j * llh));
+      r.lab.forEach((l, j) => ctx.fillText(l, x + 24, ty + j * llh));
       ctx.fillStyle = '#99a'; ctx.font = sf;
-      r.sub.forEach((l, j) => ctx.fillText(l, x + 24, ry + 9 + r.lab.length * llh + j * slh));
+      r.sub.forEach((l, j) => ctx.fillText(l, x + 24, ty + 2 + r.lab.length * llh + j * slh));
       if (o.right) { ctx.textAlign = 'right'; ctx.fillStyle = '#ffd23f'; ctx.font = rf; ctx.fillText(o.right, x + w - 24, ry + r.h / 2 - 8 * s); }
       ctx.globalAlpha = 1;
       ry += r.h + 6;
@@ -714,7 +762,7 @@
     if (Game.P.bulletTime > 0) { ctx.fillStyle = 'rgba(80,255,120,0.08)'; ctx.fillRect(0, 0, VW, VH); }
     if (Game.P.slow > 0) { ctx.fillStyle = 'rgba(80,120,200,0.12)'; ctx.fillRect(0, 0, VW, VH); }
     // interaction prompt
-    const pr = Game.prompt();
+    const pr = !UI.modal && Game.prompt();
     if (pr) {
       const sp = Game.screenOf(pr.x, pr.y + 30, 2.3), x = sp.x, y = sp.y;
       const label = `${Input.touchUsed ? '' : 'E · '}${pr.text}`;
@@ -746,12 +794,14 @@
       if (a <= 0) UI.flashState = null; else { ctx.globalAlpha = a; ctx.fillStyle = f.color; ctx.fillRect(0, 0, VW, VH); ctx.globalAlpha = 1; }
     }
     if (UI.mapOpen) drawMap(ctx, VW, VH);
-    if (UI.dialog) drawDialog(ctx, VW, VH);
     if (UI.menuState) drawMenu(ctx, VW, VH);
+    if (UI.dialog) drawDialog(ctx, VW, VH);   // on top: a dialog takes input before a menu
   };
 
   UI.debrief = (moment) => {
-    if (UI.debriefOpen || !window.Feedback) return;
+    if (UI.debriefOpen || !window.Feedback || !Game.G) return;
+    // never cover a conversation (e.g. the castle-reveal debrief fires on a timer): wait for it to end
+    if (UI.dialog || UI.menuState) { setTimeout(() => UI.debrief(moment), 600); return; }
     const G = Game.G;
     UI.debriefOpen = true;
     Input.clear();

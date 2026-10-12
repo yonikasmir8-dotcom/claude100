@@ -24,7 +24,8 @@ const paths = inputs.length
   : (existsSync(inbox) ? jsonIn(inbox) : []);
 const files = paths.map((p) => basename(p));
 if (!paths.length) {
-  console.log('feedback/inbox/ is empty — play THE NEXUS, open the pause menu, click "Export feedback", and drop the file here.');
+  console.log(inputs.length ? `No .json exports found in: ${inputs.join(', ')}`
+    : 'feedback/inbox/ is empty — play THE NEXUS, open the pause menu, click "Export feedback", and drop the file here.');
   process.exit(0);
 }
 

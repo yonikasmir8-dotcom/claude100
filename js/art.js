@@ -19,6 +19,10 @@
         ctx.fillStyle = floor; ctx.fillRect(x, y, TS, TS);
         if (th.gen === 'grid') { ctx.fillStyle = th.gridLine || 'rgba(24,224,255,0.10)'; ctx.fillRect(x, y, TS, 1); ctx.fillRect(x, y, 1, TS); }
         else if (th.gen === 'hub') { ctx.fillStyle = 'rgba(255,255,255,0.04)'; ctx.fillRect(x + 1, y + 1, TS - 2, TS - 2); }
+        else if (th.gen === 'castle') {   // obsidian flagstones with faint purple seams
+          ctx.fillStyle = 'rgba(176,106,255,0.16)'; ctx.fillRect(x, y, TS, 1); ctx.fillRect(x, y, 1, TS);
+          if ((h & 15) === 0) { ctx.strokeStyle = `rgba(176,106,255,${0.25 + 0.15 * Math.sin(t * 2 + h)})`; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x + 6, y + 4); ctx.lineTo(x + 14, y + 15); ctx.lineTo(x + 11, y + 26); ctx.stroke(); }
+        }
         else if ((h & 7) === 0) { ctx.fillStyle = 'rgba(0,0,0,0.06)'; ctx.fillRect(x + (h >> 3) % 24, y + (h >> 5) * 4 % 24, 4, 4); }
         return;
       case T.ROAD:

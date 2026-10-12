@@ -104,7 +104,7 @@
       : '<span class="empty">Beat raid bosses (☠ on the map) to earn relics.</span>';
     $('p-weapons').innerHTML = G.weapons.map((w) => `<button class="item" data-weapon="${w}" aria-pressed="${w === G.weapon}">${NX.WEAPONS[w].name}<small>${NX.WEAPONS[w].fandom}</small></button>`).join('')
       + `<span class="empty">${Object.keys(NX.WEAPONS).length - G.weapons.length} more hidden in chests across the fandoms.</span>`;
-    $('p-stats').textContent = `${G.name} · Level ${G.level} · ${Math.round(G.playTime / 60)} min · ${NX.KEY_ORDER.filter((k) => Game.isDone(k + '_gate')).length}/3 gates ·${Game.discoveredCount()} sectors explored · ${G.kills} kills · ${G.deaths} deaths · best streak ${G.bestStreak} · v${C.version}`;
+    $('p-stats').textContent = `${G.name} · Level ${G.level} · ${Math.round(G.playTime / 60)} min · ${NX.KEY_ORDER.filter((k) => Game.isDone(k + '_gate')).length}/3 gates · ${Game.discoveredCount()} sectors explored · ${G.kills} kills · ${G.deaths} deaths · best streak ${G.bestStreak} · v${C.version}`;
   }
   $('p-pets').addEventListener('click', (e) => {
     const b = e.target.closest('[data-pet]'); if (!b) return;
@@ -179,8 +179,10 @@
       UI.draw(ctx, VW, VH, state === 'play' ? dt : 0);
     }
     if (use3D) {
+      // the pill sits top-centre: keep it off the map, menus, boss bars and the trial HUD
+      const busy = state !== 'title' && (UI.mapOpen || UI.menuState || Game.trial() || Game.bossList().length);
       const n = R3D.pendingCount(), el = $('loading');
-      el.hidden = n === 0;
+      el.hidden = n === 0 || !!busy;
       if (n) el.textContent = `Sculpting ${n} high-poly model${n === 1 ? '' : 's'}…`;
     }
     Input.endFrame();

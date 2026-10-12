@@ -108,6 +108,12 @@
       case 'grunt':
         out.push(sph([0.02, 1.16, 0], 0.2, hc), cap([0.15, 1.1, 0], [0.33, 1.06, 0], [0.09, 0.06], o.mask || '#4a6a8a', { k: 0.04 }), ...eyes(o.eyes || '#ffb03a', 1.22, 0.1));
         break;
+      case 'lich':   // gaunt, long face with deep eye sockets (pair with glowEyes)
+        out.push(ell([0.03, 1.21, 0], [0.18, 0.22, 0.165], hc), ell([0.1, 1.06, 0], [0.1, 0.08, 0.09], hc, { k: 0.06 }),
+          sph([0.17, 1.23, 0.072], 0.048, '#140004', sub({ k: 0.015, mirror: true })), ell([0.16, 1.12, 0.1], [0.05, 0.05, 0.04], hc, sub({ mirror: true, k: 0.03 })),
+          box([0.2, 1.16, 0], [0.02, 0.035, 0.012], 0, '#3a3430', P), box([0.19, 1.06, 0], [0.03, 0.008, 0.05], 0, '#2a2420', P));
+        if (o.beard) out.push(cap([0.12, 1.02, 0], [0.16, 0.82, 0], [0.07, 0.015], o.beard, { k: 0.05 }));
+        break;
       default:
         out.push(sph([0.02, 1.2, 0], 0.22, hc, { mat: o.headMat }));
         if (o.hair) out.push(ell([-0.03, 1.3, 0], [0.22, 0.14, 0.235], o.hair, { k: 0.03 }), ell([0.13, 1.33, 0], [0.09, 0.06, 0.18], o.hair, { k: 0.04 }));
@@ -544,7 +550,159 @@
   def('egg', () => ({ rig: 'spin', height: 1.2, parts: [{ name: 'body', pivot: [0, 0.9, 0], mat: 'gold', res: 0.02, prims: [ell([0, 0.9, 0], [0.32, 0.42, 0.32], '#fff3c4'), tor([0, 0.85, 0], 0.32, 0.03, '#ffd23f', { ax: 'y', k: 0.02 })] }] }));
   def('pipe', () => ({ parts: [{ name: 'body', pivot: [0, 0, 0], mat: 'gloss', res: 0.07, prims: [cyl([0, 0.5, 0], 0.36, 0.5, '#1f9e2f'), cyl([0, 1.05, 0], 0.46, 0.14, '#2ec43f', { rr: 0.04 }), cyl([0, 1.2, 0], 0.32, 0.2, '#0a3a10', sub({}))] }] }));
   def('tardis', () => ({ parts: [{ name: 'body', pivot: [0, 0, 0], res: 0.07, prims: [box([0, 0.95, 0], [0.4, 0.95, 0.4], 0.03, '#1f4fa8'), box([0, 1.95, 0], [0.36, 0.08, 0.36], 0.02, '#163a80'), cyl([0, 2.1, 0], 0.07, 0.08, '#cfe8ff'), box([0.41, 1.5, 0], [0.01, 0.12, 0.3], 0, '#cfe0ff', P), box([0.41, 0.95, 0], [0.01, 0.4, 0.008], 0, '#163a80', P)] }] }));
-  def('statue', (c) => ({ parts: [{ name: 'body', pivot: [0, 0, 0], mat: 'gloss', res: 0.06, prims: [box([0, 0.3, 0], [0.38, 0.3, 0.38], 0.05, '#4a4070'), cyl([0, 0.7, 0], 0.18, 0.15, '#5a5088', { rr: 0.04 })] }] }));
+  def('statue', (c) => ({ parts: [{ name: 'body', pivot: [0, 0, 0], mat: 'gloss', res: 0.06, prims: [box([0, 0.3, 0], [0.38, 0.3, 0.38], 0.05, c || '#4a4070'), cyl([0, 0.7, 0], 0.18, 0.15, c ? mix(c, '#ffffff', 0.15) : '#5a5088', { rr: 0.04 })] }] }));
+
+  // ---------- Campaign: arcade cabinet, gate portal, IOI pylon, IOI-655321, Anorak, the Egg ----------
+  // Parts named screen/marquee/membrane/orb/ring* are restyled or animated by js/render3d.js.
+  const mix = (a, b, t) => { const p = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16)), x = p(a), y = p(b); return '#' + x.map((v, i) => Math.round(v + (y[i] - v) * t).toString(16).padStart(2, '0')).join(''); };
+  def('cabinet', () => {
+    const body = '#2a2244', trim = '#3c3466';
+    // points on the tilted screen face / control deck (local u = up the face, z = across)
+    const scr = (u, z) => [0.188 - 0.199 * u, 1.334 + 0.98 * u, z];
+    const deck = (u, z, dy = 0) => [0.171 + 0.976 * u, 0.969 - 0.218 * u + dy, z];
+    const screen = [box([0.17, 1.33, 0], [0.02, 0.21, 0.25], 0.01, '#14286e', { rot: [0, 0, 0.2] }),
+      box(scr(0.15, 0), [0.03, 0.012, 0.2], 0, '#f2f2f2', { op: 'paint', rot: [0, 0, 0.2] }),
+      box(scr(0.06, 0), [0.03, 0.007, 0.23], 0, '#3a6aff', { op: 'paint', rot: [0, 0, 0.2] }), box(scr(-0.15, 0), [0.03, 0.007, 0.23], 0, '#3a6aff', { op: 'paint', rot: [0, 0, 0.2] }),
+      sph(scr(-0.045, 0.13), 0.045, '#ffe23a', P), sph(scr(-0.045, -0.15), 0.04, '#ff3030', P), sph(scr(-0.03, -0.18), 0.012, '#ffffff', P)];
+    for (let i = 0; i < 5; i++) screen.push(sph(scr(-0.045, 0.06 - i * 0.04), 0.011, '#ffd8b0', P));
+    const marquee = [box([0.265, 1.74, 0], [0.02, 0.075, 0.32], 0.01, '#ffcf3a'), box([0.29, 1.8, 0], [0.03, 0.01, 0.32], 0, '#fff4c0', P), box([0.29, 1.68, 0], [0.03, 0.01, 0.32], 0, '#fff4c0', P)];
+    for (let i = 0; i < 6; i++) marquee.push(box([0.29, 1.74, -0.22 + i * 0.088], [0.03, 0.035, 0.026], 0.008, i % 2 ? '#ff3a6a' : '#e0287a', P));
+    const knobs = [cyl(deck(0.05, 0.16), 0.045, 0.012, '#111'), cap(deck(0.05, 0.16), [0.235, 1.07, 0.16], 0.013, '#222'), sph([0.238, 1.085, 0.16], 0.036, '#e83a3a', { k: 0.01 })];
+    ['#ffd23f', '#3aff6a', '#3a9aff', '#ff3a3a', '#ff4fd8', '#f2f2f2'].forEach((col, i) => knobs.push(sph(deck(i < 3 ? 0.08 : 0.0, -0.01 - (i % 3) * 0.085, -0.012), 0.03, col, { k: 0.005 })));
+    return { rig: 'static', height: 1.9, parts: [
+      { name: 'body', pivot: [0, 0, 0], mat: 'gloss', res: 0.032, prims: [
+        box([-0.02, 0.45, 0], [0.3, 0.45, 0.33], 0.03, body),
+        box([-0.1, 1.3, 0], [0.22, 0.5, 0.33], 0.03, body, { k: 0.02 }),
+        box([0.16, 0.92, 0], [0.18, 0.05, 0.35], 0.025, trim, { rot: [0, 0, -0.22], k: 0.02 }),
+        box([0.12, 1.32, 0], [0.06, 0.28, 0.31], 0.03, body, { rot: [0, 0, 0.2], k: 0.03 }),
+        box([0.08, 1.74, 0], [0.18, 0.1, 0.35], 0.02, trim, { k: 0.02 }),
+        box([-0.02, 1.86, 0], [0.33, 0.03, 0.37], 0.015, body, { k: 0.01 }),
+        box([0.29, 0.06, 0], [0.04, 0.06, 0.34], 0.01, '#0c0a16', { k: 0.01 }),
+        box([0, 1.02, 0.342], [0.3, 0.035, 0.01], 0, '#ff4fd8', pm({ rot: [0, 0, 0.75] })),
+        box([0, 0.8, 0.342], [0.3, 0.035, 0.01], 0, '#4ff3ff', pm({ rot: [0, 0, 0.75] })),
+        box([0.29, 0.48, 0], [0.03, 0.14, 0.12], 0.01, '#3a3456', P),
+        box([0.3, 0.52, 0.05], [0.02, 0.025, 0.012], 0, '#ff9b3d', pm({})),
+      ] },
+      { name: 'deck', pivot: [0, 0, 0], mat: 'gloss', res: 0.012, prims: knobs },
+      { name: 'screen', pivot: [0, 0, 0], mat: 'glowSoft', res: 0.015, prims: screen },
+      { name: 'marquee', pivot: [0, 0, 0], mat: 'glowSoft', res: 0.014, prims: marquee },
+    ] };
+  });
+  // A massive ring portal on a stone plinth, tinted by the act colour, facing +X.
+  def('gatedoor', (c) => {
+    c = c || '#e08a4a';
+    const lite = mix(c, '#ffffff', 0.55), dark = mix(c, '#14121c', 0.6), stone = '#4a4658', stone2 = '#5c586c', Y = 1.75, R = 1.2;
+    const ring = [tor([0, Y, 0], R, 0.17, c, { ax: 'x' }), tor([0, Y, 0], R - 0.16, 0.055, dark, { ax: 'x', k: 0.03 }), tor([0.13, Y, 0], R + 0.02, 0.03, lite, { ax: 'x', op: 'paint' })];
+    const chev = [];
+    for (let i = 0; i < 9; i++) {
+      const a = Math.PI / 2 + (i - 4) * 0.62, y = Y + Math.sin(a) * R, z = Math.cos(a) * R, rot = [Math.PI / 2 - a, 0, 0];
+      ring.push(box([0.06, y, z], [0.14, 0.1, 0.13], 0.03, dark, { rot, k: 0.03 }));
+      chev.push(box([0.2, y + Math.sin(a) * 0.04, z + Math.cos(a) * 0.04], [0.02, 0.045, 0.07], 0.01, lite, { rot }));
+    }
+    const plinth = [
+      box([0, 0.14, 0], [0.8, 0.14, 1.95], 0.04, stone),
+      box([0, 0.34, 0], [0.6, 0.07, 1.75], 0.03, stone2, { k: 0.02 }),
+      box([0.72, 0.18, 0], [0.18, 0.05, 0.7], 0.02, stone2, { k: 0.02 }),
+      box([0, 0.55, 0], [0.32, 0.17, 0.42], 0.04, stone, { k: 0.04 }),
+      box([0, 1.3, 1.62], [0.17, 0.92, 0.17], 0.03, stone, { mirror: true, k: 0.03 }),
+      box([0, 2.28, 1.62], [0.13, 0.13, 0.13], 0.02, stone2, { mirror: true, rot: [0, 0.785, 0], k: 0.03 }),
+      box([0.81, 0.14, 0], [0.02, 0.03, 1.5], 0, c, P), box([0.33, 0.55, 0], [0.02, 0.05, 0.3], 0, c, P),
+      box([0.18, 1.3, 1.62], [0.02, 0.7, 0.04], 0, c, pm({})),
+    ];
+    for (const s of [1, -1]) chev.push(sph([0, 2.48, 1.62 * s], 0.09, lite));
+    const membrane = [ell([0, Y, 0], [0.07, R - 0.12, R - 0.12], mix(c, '#ffffff', 0.25)), sph([0, Y, 0], 0.22, '#ffffff', P)];
+    for (let i = 0; i < 4; i++) membrane.push(tor([0, Y, 0], 0.32 + i * 0.22, 0.05 + i * 0.008, i % 2 ? c : lite, { ax: 'x', op: 'paint' }));
+    return { rig: 'gate', height: 3, parts: [
+      { name: 'plinth', pivot: [0, 0, 0], mat: 'stone', res: 0.06, prims: plinth },
+      { name: 'ring', pivot: [0, Y, 0], mat: 'metal', res: 0.045, prims: ring },
+      { name: 'chevrons', pivot: [0, Y, 0], mat: 'glowSoft', res: 0.02, prims: chev },
+      { name: 'membrane', pivot: [0, Y, 0], mat: 'glowSoft', res: 0.065, prims: membrane },
+    ], extras: [{ to: 'membrane', kind: 'portal', glow: c, at: [0, Y, 0], size: R - 0.1 }, { kind: 'glow', glow: c, at: [0, 2.48, 1.62], size: 1.1 }, { kind: 'glow', glow: c, at: [0, 2.48, -1.62], size: 1.1 }] };
+  });
+  // IOI shield pylon: tapered tower, orange orb on top, floating rings.
+  def('shieldgen', () => {
+    const steel = '#5c606b', dark = '#34373f', or = '#ff9b3d';
+    const body = [
+      cyl([0, 0.07, 0], 0.5, 0.07, dark, { rr: 0.03 }),
+      cyl([0, 0.17, 0], 0.4, 0.05, steel, { rr: 0.03, k: 0.03 }),
+      cap([0, 0.2, 0], [0, 2.02, 0], [0.27, 0.11], steel, { k: 0.06 }),
+      box([0, 0.62, 0], [0.5, 0.035, 0.5], 0, or, P), box([0, 1.14, 0], [0.5, 0.03, 0.5], 0, or, P), box([0, 1.58, 0], [0.5, 0.025, 0.5], 0, or, P),
+      box([0, 1.1, 0], [0.5, 0.8, 0.02], 0, or, P), box([0, 1.1, 0], [0.02, 0.8, 0.5], 0, or, P),
+      tor([0, 2.04, 0], 0.14, 0.045, dark, { k: 0.03 }),
+    ];
+    for (let i = 0; i < 4; i++) {
+      const a = Math.PI / 4 + i * Math.PI / 2, x = Math.cos(a), z = Math.sin(a);
+      body.push(cap([x * 0.44, 0.1, z * 0.44], [x * 0.17, 1.0, z * 0.17], [0.075, 0.03], dark, { k: 0.05 }), sph([x * 0.46, 0.16, z * 0.46], 0.05, or, P),
+        cap([x * 0.12, 2.0, z * 0.12], [x * 0.25, 2.3, z * 0.25], [0.035, 0.014], steel, { k: 0.03 }));
+    }
+    const ringPart = (name, y, R, r, rot, col) => ({ name, pivot: [0, y, 0], mat: 'glowSoft', res: 0.024, prims: [tor([0, y, 0], R, r, col, { rot })] });
+    return { rig: 'pylon', height: 2.6, parts: [
+      { name: 'body', pivot: [0, 0, 0], mat: 'metal', res: 0.034, prims: body },
+      { name: 'orb', pivot: [0, 2.34, 0], mat: 'glowSoft', res: 0.02, prims: [sph([0, 2.34, 0], 0.19, '#ffb45a')] },
+      ringPart('ringA', 1.3, 0.56, 0.04, [0.25, 0, 0.1], or), ringPart('ringB', 1.84, 0.43, 0.035, [-0.2, 0, -0.25], or), ringPart('ringC', 2.34, 0.33, 0.03, [1.1, 0, 0.4], '#ffd29a'),
+    ], extras: [{ to: 'orb', kind: 'glow', glow: or, at: [0, 2.34, 0], size: 1.8 }] };
+  });
+  // IOI-655321: an upgraded Sixer in grey/black armour with orange trim, a visor helmet and an orange cape.
+  def('ioi655321', () => {
+    const h = humanoid({ suit: '#5a5f6a', pants: '#2c2f36', skin: '#5a5f6a', helm: '#3a3e47', visor: '#ff9b3d', glowVisor: '#ff9b3d', chest: '#3a3e47', pads: '#2c2f36', belt: '#1c1e24', boots: '#1c1e24', gloves: '#1c1e24', build: 'bulky', mat: 'gloss', prop: 'rifle', propColor: '#ff9b3d' });
+    const bw = 1.28, or = '#ff9b3d', blk = '#1c1e24';
+    h.parts[0].prims.push(
+      tor([-0.02, 1.02, 0], 0.17, 0.05, blk, { k: 0.05 }),                                      // collar
+      box([0.22, 0.92, 0], [0.04, 0.1, 0.025], 0, or, P), box([0.22, 0.83, 0.04], [0.04, 0.02, 0.06], 0, or, P),   // chest "6" flash
+      cap([0.14, 1.43, 0], [-0.16, 1.42, 0], [0.035, 0.02], or, { k: 0.03 }),                   // helmet crest
+      tor([0, 1.0, 0.27 * bw], 0.1, 0.02, or, { mirror: true, op: 'paint' }),                   // pad trim
+      box([0.19, 0.66, 0], [0.04, 0.035, 0.06], 0.01, or, P),                                   // buckle
+    );
+    // a draped cape: an ellipsoid shell behind the shoulders
+    h.parts.push({ name: 'cape', pivot: [0, 1, 0], mat: 'skin', res: 0.022, prims: [
+      ell([-0.13, 0.6, 0], [0.15, 0.58, 0.33], '#ff8a2a'), ell([-0.02, 0.6, 0], [0.17, 0.66, 0.29], '#b8501a', sub({ k: 0.02 })),
+      box([-0.15, 1.38, 0], [0.4, 0.34, 0.5], 0, '#b8501a', sub({ k: 0.03 })), box([-0.2, 0.1, 0], [0.4, 0.035, 0.5], 0, '#c85a10', P)] });
+    for (const p of h.parts) {
+      if (p.name.startsWith('leg')) { const s = p.name === 'legL' ? 1 : -1; p.prims.push(ell([0.07, 0.33, 0.12 * s * bw], [0.04, 0.055, 0.065], or, { k: 0.02 })); }
+      if (p.name.startsWith('arm')) { const s = p.name === 'armL' ? 1 : -1; p.prims.push(cap([0.02, 0.84, 0.3 * s * bw], [0.04, 0.74, 0.31 * s * bw], 0.09, blk, { k: 0.03 }), box([0.04, 0.79, 0.31 * s * bw], [0.1, 0.012, 0.1], 0, or, P)); }
+    }
+    return h;
+  });
+  // Anorak: a tall robed lich-wizard in black and crimson with glowing red eyes, a crown and long sleeves.
+  def('anorak', () => {
+    const robe = '#140c14', crim = '#8e0c22', face = '#8e887e', gold = '#d8a83a';
+    const h = humanoid({ suit: robe, robe, skin: face, gloves: face, head: 'lich', beard: '#5a5650', glowEyes: '#ff2a2a', build: 'slim', prop: 'staff', propColor: '#ff2a3a', scale: 1.32 });
+    h.parts[0].prims.push(
+      cap([0, 1.0, 0], [0, 0.03, 0], [0.19, 0.42], robe, { k: 0.12 }),
+      box([0, 0.04, 0], [0.6, 0.06, 0.6], 0, crim, P),
+      box([0.3, 0.5, 0], [0.2, 0.5, 0.05], 0, crim, { op: 'paint', rot: [0, 0, 0.36] }),
+      box([0.3, 0.5, 0], [0.2, 0.5, 0.012], 0, gold, { op: 'paint', rot: [0, 0, 0.36] }),
+      ell([-0.01, 1.0, 0], [0.2, 0.09, 0.28], crim, { k: 0.06 }),                                 // shoulder mantle
+      box([0.0, 0.66, 0], [0.32, 0.03, 0.32], 0, crim, P),
+      box([0, -0.5, 0], [0.8, 0.5, 0.8], 0, crim, sub({ k: 0.02 })),                            // flat hem on the ground
+    );
+    h.parts[0].res = 0.023;
+    // hood with a crimson lining, crowned
+    const hood = [ell([-0.02, 1.24, 0], [0.25, 0.31, 0.26], robe), cap([-0.08, 1.12, 0], [-0.2, 0.86, 0], [0.18, 0.12], robe, { k: 0.08 }),
+      ell([0.22, 1.18, 0], [0.15, 0.22, 0.165], crim, sub({ k: 0.03 })), tor([0.0, 1.46, 0], 0.19, 0.026, gold, { k: 0.01 }), sph([0.19, 1.47, 0], 0.032, '#ff2030', { k: 0.004 })];
+    for (let i = 0; i < 9; i++) { const a = (i - 4) * 0.42; hood.push(cap([Math.cos(a) * 0.18, 1.47, Math.sin(a) * 0.18], [Math.cos(a) * 0.2, 1.6 + (i % 2 ? 0 : 0.06), Math.sin(a) * 0.2], [0.028, 0.006], gold, { k: 0.02 })); }
+    h.parts.push({ name: 'hood', pivot: [0, 1.2, 0], mat: 'skin', res: 0.024, prims: hood });
+    for (const p of h.parts) if (p.name.startsWith('arm')) {
+      const s = p.name === 'armL' ? 1 : -1, z = (v) => v * s * 0.84;
+      p.prims[0] = cap([0, 0.98, z(0.26)], [0.05, 0.64, z(0.34)], [0.07, 0.12], robe, { k: 0.04 });
+      p.prims[1] = sph([0.08, 0.6, z(0.33)], 0.05, face, { k: 0.03 });
+      p.prims.push(ell([0.0, 0.56, z(0.34)], [0.1, 0.13, 0.085], robe, { k: 0.05 }), tor([0.05, 0.64, z(0.34)], 0.115, 0.02, crim, { rot: [0, 0, -0.15], op: 'paint' }),
+        ell([0.0, 0.5, z(0.34)], [0.11, 0.06, 0.09], crim, P));
+    }
+    return h;
+  });
+  // The Egg as a pickup: jewelled silver with gold bands.
+  def('pk_egg', () => {
+    const Y = 0.55, silver = '#e2e6ee', gold = '#ffc93a', gems = ['#ff1f3d', '#2a7aff', '#1fd070'];
+    const shell = [ell([0, Y, 0], [0.2, 0.27, 0.2], silver), sph([0, Y - 0.07, 0], 0.195, silver, { k: 0.12 }),
+      tor([0, Y - 0.03, 0], 0.203, 0.016, gold, { k: 0.01 }), tor([0, Y + 0.16, 0], 0.152, 0.011, gold, { k: 0.01 }), tor([0, Y - 0.19, 0], 0.15, 0.011, gold, { k: 0.01 }),
+      box([0, Y, 0], [0.01, 0.32, 0.3], 0, gold, P), box([0, Y, 0], [0.3, 0.32, 0.01], 0, gold, P),
+      sph([0, Y + 0.275, 0], 0.035, gold, { k: 0.02 }), cap([0, Y + 0.29, 0], [0, Y + 0.34, 0], [0.012, 0.004], gold, { k: 0.01 })];
+    const jewels = [];
+    for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4 + Math.PI / 8; jewels.push(sph([Math.cos(a) * 0.212, Y - 0.03, Math.sin(a) * 0.212], 0.024, gems[i % 3], { k: 0.004 })); }
+    for (let i = 0; i < 4; i++) { const a = i * Math.PI / 2 + Math.PI / 4; jewels.push(sph([Math.cos(a) * 0.168, Y + 0.14, Math.sin(a) * 0.168], 0.02, gems[(i + 1) % 3], { k: 0.004 }), sph([Math.cos(a) * 0.176, Y - 0.17, Math.sin(a) * 0.176], 0.02, gems[(i + 2) % 3], { k: 0.004 })); }
+    return { rig: 'spin', height: 0.9, parts: [{ name: 'body', pivot: [0, Y, 0], mat: 'metal', res: 0.015, prims: shell }, { name: 'jewels', pivot: [0, Y, 0], mat: 'gloss', res: 0.01, prims: jewels }] };
+  });
 
   // ---------- Mounts ----------
   const wheels = (x, z, r, col = '#1a1a1a') => [tor([x, r, z], r * 0.7, r * 0.3, col, { ax: 'z', mirror: true, k: 0.01 }), tor([-x, r, z], r * 0.7, r * 0.3, col, { ax: 'z', mirror: true, k: 0.01 })];

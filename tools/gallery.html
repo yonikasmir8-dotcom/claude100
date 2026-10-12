@@ -45,8 +45,10 @@
     glowSoft: new THREE.MeshBasicMaterial({ vertexColors: true }),
   };
   const only = params.get('only');
-  let keys = only ? only.split(',') : [...Object.keys(NX.ENEMIES), 'player:#4a9cff', 'curator', 'shop', 'garage', 'score', 'gunter:#ff4f8b',
-    'mount_delorean', 'mount_batmobile', 'mount_ecto1', 'mount_nimbus', 'mount_elytra', 'chest', 'egg', 'pk_coin', 'pk_heart', 'pk_pokeballs', 'pk_grenade', 'pk_mushroom', 'pk_star', 'pk_extralife', 'pk_key:#e08a4a', 'pk_relic', 'pk_mount', 'tree_round', 'tree_pine', 'tree_palm', 'bush', 'rock', 'pipe', 'tardis', 'statue'];
+  // campaign: shieldgen + ioi655321 come from NX.ENEMIES; sites, Anorak and the Egg are listed explicitly
+  const camp = ['cabinet', ...Object.values(NX.CAMPAIGN.acts).map((a) => 'gatedoor:' + a.color), 'anorak', 'pk_egg'];
+  let keys = only ? only.split(',') : [...Object.keys(NX.ENEMIES), 'player:#4a9cff', 'curator', 'shop', 'garage', 'score', 'gunter:#ff4f8b', ...camp,
+    'mount_delorean', 'mount_batmobile', 'mount_ecto1', 'mount_nimbus', 'mount_elytra', 'chest', 'egg', 'pk_coin', 'pk_heart', 'pk_pokeballs', 'pk_grenade', 'pk_mushroom', 'pk_star', 'pk_extralife', 'pk_key:#e08a4a', 'pk_relic', 'pk_mount', 'tree_round', 'tree_pine', 'tree_palm', 'bush', 'rock', 'pipe', 'tardis', 'statue', 'statue:#2a1a3a'];
   const cells = [];
   let tris = 0, ms = 0;
   const res = Number(params.get('res') || 1);
@@ -64,6 +66,9 @@
       body.add(new THREE.Mesh(g, mats[p.mat || 'skin'] || mats.skin));
     }
     body.scale.setScalar(spec.scale || 1);
+    // big set pieces (gate portals) are shrunk to fit their 2.4-unit cell
+    const size = new THREE.Box3().setFromObject(root).getSize(new THREE.Vector3()), wide = Math.max(size.x, size.z);
+    if (wide > 2.2) body.scale.multiplyScalar(2.2 / wide);
     return { root, spec };
   }
   const cols = Math.ceil(Math.sqrt(keys.length * 1.6));

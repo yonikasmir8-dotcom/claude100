@@ -33,8 +33,11 @@
     stranger: { sky: '#180a10', hemi: ['#ff5a7a', '#0a0508'], sun: ['#ff8a9a', 0.34], exposure: 1.3 },
     namek: { sky: '#8fe0b0', hemi: ['#e0fff0', '#3a6a5a'], sun: ['#fffff0', 1.22], exposure: 1.0 },
     portal: { sky: '#c8d0d8', hemi: ['#ffffff', '#707880'], sun: ['#ffffff', 0.9], exposure: 0.85 },
+    // optional: fog (defaults to sky), fill [colour, intensity] (default cool blue), sunH (key light height, default 26)
+    castle: { sky: '#1a0408', fog: '#4a1208', hemi: ['#ff8a6a', '#1a0820'], sun: ['#ffa060', 0.95], exposure: 1.15, fill: ['#9a5aff', 0.6], sunH: 11 },
   };
-  const DARK = new Set(['pacmaze', 'ghostcity', 'grid', 'dc', 'startrek', 'stranger', 'hub']);
+  const DARK = new Set(['pacmaze', 'ghostcity', 'grid', 'dc', 'startrek', 'stranger', 'hub', 'castle']);
+  const FILL = ['#8ab0ff', 0.35];
 
   // ---------- Init ----------
   R3D.init = (canvas) => {
@@ -183,7 +186,7 @@
       const m = new THREE.Mesh(p.geo, p.mat);
       m.position.set(p.pivot[0], p.pivot[1], p.pivot[2]);
       m.castShadow = true; m.receiveShadow = true;
-      m.userData.baseMat = p.mat;
+      m.userData.baseMat = p.mat; m.userData.pivot = p.pivot;
       body.add(m); rig[p.name] = m; meshes.push(m);
     }
     rig.root = body;
@@ -235,7 +238,29 @@
         if (w) { w.position.copy(local(ex.at)); parent.add(w); rig.prop = w; }
         break;
       }
+      case 'glow': { const h = halo(ex.glow, ex.size || 1); h.position.copy(local(ex.at)); parent.add(h); break; }
+      case 'portal': {
+        // swirling event-horizon discs on both faces of a gate membrane (facing ±X), spun by the 'gate' rig
+        const g = new THREE.Group();
+        const mat = new THREE.MeshBasicMaterial({ map: swirlTex(), color: ex.glow, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false, side: THREE.DoubleSide });
+        for (const s of [1, -1]) { const m = new THREE.Mesh(geo.swirl || (geo.swirl = new THREE.CircleGeometry(1, 48).rotateY(Math.PI / 2)), mat); m.position.x = 0.085 * s; m.scale.setScalar(ex.size || 1); g.add(m); }
+        g.position.copy(local(ex.at)); parent.add(g); rig.swirl = g; rig.swirlMat = mat;
+        break;
+      }
     }
+  }
+  function swirlTex() {
+    return canvasTex('swirl', 128, 128, (x, w, h) => {
+      x.fillStyle = '#000'; x.fillRect(0, 0, w, h);
+      const g = x.createRadialGradient(64, 64, 0, 64, 64, 64); g.addColorStop(0, 'rgba(255,255,255,0.9)'); g.addColorStop(0.35, 'rgba(255,255,255,0.15)'); g.addColorStop(1, 'rgba(255,255,255,0.3)');
+      x.fillStyle = g; x.beginPath(); x.arc(64, 64, 63, 0, Math.PI * 2); x.fill();
+      x.lineCap = 'round';
+      for (let a = 0; a < 4; a++) for (let i = 0; i < 40; i++) {
+        const t = i / 40, ang = a * Math.PI / 2 + t * 4.2, r = 6 + t * 54;
+        x.strokeStyle = `rgba(255,255,255,${0.75 * (1 - t * 0.6)})`; x.lineWidth = 1.5 + t * 4;
+        x.beginPath(); x.arc(64, 64, r, ang, ang + 0.16); x.stroke();
+      }
+    });
   }
 
   // Hard-surface hand props & weapons (pointing along +X, held at the origin).
@@ -339,6 +364,12 @@
     windows: (x, w, h) => { x.fillStyle = '#000'; x.fillRect(0, 0, w, h); for (let j = 0; j < 2; j++) for (let i = 0; i < 3; i++) { if (Math.random() < 0.55) { x.fillStyle = '#fff'; x.fillRect(6 + i * 20, 8 + j * 30, 12, 18); } } },
     windowsBase: (x, w, h) => { x.fillStyle = '#fff'; x.fillRect(0, 0, w, h); x.fillStyle = 'rgba(0,0,0,0.55)'; for (let j = 0; j < 2; j++) for (let i = 0; i < 3; i++) x.fillRect(6 + i * 20, 8 + j * 30, 12, 18); },
     qblock: (x, w, h) => { x.fillStyle = '#f5b829'; x.fillRect(0, 0, w, h); x.strokeStyle = '#7a4a10'; x.lineWidth = 3; x.strokeRect(2, 2, w - 4, h - 4); x.fillStyle = '#7a4a10'; x.font = 'bold 44px monospace'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText('?', w / 2, h / 2 + 2); },
+    // emissive map for obsidian blocks: black with glowing purple seams and a hairline crack
+    obsidianSeams: (x, w, h) => {
+      x.fillStyle = '#000'; x.fillRect(0, 0, w, h);
+      x.strokeStyle = '#b06aff'; x.lineWidth = 2; x.strokeRect(1, 1, w - 2, h - 2);
+      x.strokeStyle = 'rgba(176,106,255,0.55)'; x.lineWidth = 1; x.beginPath(); x.moveTo(8, 0); x.lineTo(20, 22); x.lineTo(14, 40); x.lineTo(30, 64); x.moveTo(20, 22); x.lineTo(44, 30); x.stroke();
+    },
   };
 
   function boxGeo() { return geo.box || (geo.box = new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0)); }
@@ -376,6 +407,7 @@
         break;
       }
       case 'qblock': m = std({ map: tex('q', blockTex.qblock, [1, 1]), emissive: '#5a3a00', roughness: 0.4 }); break;
+      case 'obsidian': m = std({ color: new THREE.Color(th.wallColor).convertSRGBToLinear(), roughness: 0.2, metalness: 0.3, envMap: R3D.envMap, envMapIntensity: 0.5, emissive: '#ffffff', emissiveMap: tex('obsidian', blockTex.obsidianSeams, [1, h]), emissiveIntensity: 1 }); break;
       default: m = std({});
     }
     texCache.set(key, m);
@@ -396,6 +428,7 @@
     lcars: { mat: 'lcars', h: () => 2 },
     checker: { mat: 'checker', h: () => 1 },
     panel: { mat: 'panel', h: (r) => 2 + Math.floor(r * 2) },
+    obsidian: { mat: 'obsidian', h: (r) => (r < 0.5 ? 2.5 : 3) },   // two heights read as battlements
     vines: { geo: 'rock', h: (r) => 0.9 + r * 0.6 },
     tree: { geo: 'tree' },
   };
@@ -412,7 +445,7 @@
     const lists = {};
     const push = (k, lx, ly) => (lists[k] || (lists[k] = [])).push([lx, ly]);
     let hasWater = false;
-    const KIND = { [T.WALL]: 'wall', [T.BREAK]: 'break', [T.QBLOCK]: 'qblock', [T.USED]: 'used', [T.PELLET]: 'pellet', [T.POWER]: 'power', [T.GRASS]: 'grass', [T.PROP]: 'prop', [T.DECOR]: 'decor', [T.GATE]: 'gate', [T.ALTAR]: 'altar' };
+    const KIND = { [T.WALL]: 'wall', [T.BREAK]: 'break', [T.QBLOCK]: 'qblock', [T.USED]: 'used', [T.PELLET]: 'pellet', [T.POWER]: 'power', [T.GRASS]: 'grass', [T.PROP]: 'prop', [T.DECOR]: 'decor', [T.GATE]: 'gate', [T.ALTAR]: 'altar', [T.FORCE]: 'force' };
     for (let ly = 0; ly < S; ly++) for (let lx = 0; lx < S; lx++) {
       const t = tiles[ly * S + lx];
       if (t === T.WATER) hasWater = true;
@@ -500,9 +533,10 @@
     if (lists.grass) inst(grassGeo(), texCache.get('grassMat:' + theme) || texCache.set('grassMat:' + theme, new THREE.MeshStandardMaterial({ color: theme === 'jurassic' ? '#3a7a2a' : '#3e9e3a', roughness: 0.8, side: THREE.DoubleSide })).get('grassMat:' + theme), lists.grass, (d, lx, ly) => { d.rotation.y = h01(lx, ly) * 6; d.scale.setScalar(0.8 + h01(lx, ly, 2) * 0.5); return null; }, { cast: false });
     if (lists.decor) decorInst(th, theme, lists.decor, inst, h01);
     if (lists.prop) propInst(th, theme, lists.prop, inst, h01, group);
+    if (lists.force) forceInst(lists.force, tiles, inst);
     const anim = [];
     for (const [lx, ly] of lists.gate || []) { const g = gateMesh(); g.position.set(lx + 0.5, 0, ly + 0.5); group.add(g); anim.push(g); }
-    for (const [lx, ly] of lists.altar || []) { const a = altarMesh(); if (a) { a.position.set(lx + 0.5, 0, ly + 0.5); group.add(a); anim.push(a); } else if (needs) needs.add('egg'); }
+    for (const [lx, ly] of lists.altar || []) { const a = th.gen === 'castle' ? castleAltarMesh() : altarMesh(); if (a) { a.position.set(lx + 0.5, 0, ly + 0.5); group.add(a); anim.push(a); } else if (needs) needs.add('egg'); }
     const out = { group, pellets, anim, power, needs };
     needs = null;
     return out;
@@ -572,10 +606,10 @@
         inst(geo.consoleTop || (geo.consoleTop = new THREE.BoxGeometry(0.7, 0.04, 0.4)), glowMat('#f7a83a'), list, (d) => { d.position.y = 0.72; return null; }, { cast: false });
         break;
       case 'statue': {
-        const g = lib('statue');
+        const castle = th.gen === 'castle', g = lib(castle ? 'statue:' + th.wallColor : 'statue');
         if (!g) break;
         inst(g, MAT.gloss, list, () => null);
-        const cols = ['#4fc3ff', '#ffe23a', '#ff4a3a', '#3fcf8e', '#2b3cff', '#ff9a3a'];
+        const cols = castle ? ['#ff2a4a', '#ff9b3d', '#b06aff'] : ['#4fc3ff', '#ffe23a', '#ff4a3a', '#3fcf8e', '#2b3cff', '#ff9a3a'];
         list.forEach(([lx, ly], i) => {
           const m = new THREE.Mesh(geo.ico || (geo.ico = new THREE.IcosahedronGeometry(0.35, 1)), glowMat(cols[i % cols.length]));
           m.position.set(lx + 0.5, 1.6, ly + 0.5); m.userData.spin = true; group.add(m);
@@ -585,6 +619,44 @@
       }
       default: inst(boxGeo(), std('generic', '#888'), list, (d) => { d.scale.set(0.6, 0.8, 0.6); return null; });
     }
+  }
+
+  // IOI forcefield: translucent additive curtains on every FORCE edge that faces a non-FORCE tile,
+  // plus a faint lid. Instanced per chunk; no shadows, no depth writes; pulsed in animateTerrain().
+  const FORCE_H = 2.5;
+  let forceMats = null;
+  function forceMaterials() {
+    if (forceMats) return forceMats;
+    const add = { transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, toneMapped: false };
+    const curtain = canvasTex('force', 32, 128, (x, w, h) => {
+      const g = x.createLinearGradient(0, h, 0, 0);
+      g.addColorStop(0, '#ffffff'); g.addColorStop(0.12, '#a8a8a8'); g.addColorStop(0.7, '#3a3a3a'); g.addColorStop(1, '#202020');
+      x.fillStyle = g; x.fillRect(0, 0, w, h);
+      x.fillStyle = 'rgba(255,255,255,0.35)'; for (let y = 8; y < h; y += 16) x.fillRect(0, y, w, 1);
+      x.fillStyle = 'rgba(255,255,255,0.22)'; x.fillRect(0, 0, 1, h);
+      x.fillStyle = '#ffffff'; x.fillRect(0, 0, w, 3);
+    });
+    const flow = canvasTex('forceFlow', 8, 64, (x, w, h) => {
+      x.fillStyle = '#000'; x.fillRect(0, 0, w, h);
+      for (const [y, a] of [[6, 0.9], [26, 0.5], [44, 0.7]]) { const g = x.createLinearGradient(0, y - 5, 0, y + 5); g.addColorStop(0, 'rgba(255,255,255,0)'); g.addColorStop(0.5, `rgba(255,255,255,${a})`); g.addColorStop(1, 'rgba(255,255,255,0)'); x.fillStyle = g; x.fillRect(0, y - 5, w, 10); }
+    }, { repeat: [1, 2] });
+    forceMats = {
+      wall: new THREE.MeshBasicMaterial(Object.assign({ color: '#ff9b3d', map: curtain, opacity: 0.42 }, add)),
+      flow: new THREE.MeshBasicMaterial(Object.assign({ color: '#ff9b3d', map: flow, opacity: 0.3 }, add)),
+      lid: new THREE.MeshBasicMaterial(Object.assign({ color: '#ff7a1a', opacity: 0.07 }, add)),
+    };
+    return forceMats;
+  }
+  function forceInst(list, tiles, inst) {
+    const M = forceMaterials();
+    const isF = (x, y) => x >= 0 && y >= 0 && x < S && y < S && tiles[y * S + x] === T.FORCE;
+    const DIRS = [[0, 1], [1, 0], [0, -1], [-1, 0]];   // rotation.y = k * PI/2 turns the +z edge onto each side
+    const edges = [];
+    for (const [lx, ly] of list) DIRS.forEach(([dx, dy], k) => { if (!isF(lx + dx, ly + dy)) edges.push([lx, ly, k]); });
+    const eg = geo.forceEdge || (geo.forceEdge = new THREE.PlaneGeometry(1, FORCE_H).translate(0, FORCE_H / 2, 0.5));
+    const turn = (d, lx, ly, i, c, it) => { d.rotation.y = it[2] * Math.PI / 2; return null; };
+    for (const mat of [M.wall, M.flow]) for (const m of inst(eg, mat, edges, turn, { cast: false }) || []) { m.receiveShadow = false; m.renderOrder = 2; }
+    for (const m of inst(geo.forceLid || (geo.forceLid = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2).translate(0, FORCE_H, 0)), M.lid, list, () => null, { cast: false }) || []) { m.receiveShadow = false; m.renderOrder = 2; }
   }
 
   function gateMesh() {
@@ -611,6 +683,20 @@
     g.userData.egg = egg;
     return g;
   }
+  // Anorak's altar: a stepped obsidian dais with crimson rune rings and an empty cradle (the Egg waits beside it).
+  function castleAltarMesh() {
+    const g = new THREE.Group();
+    const obs = sharedMat('altarObs', () => new THREE.MeshStandardMaterial({ color: new THREE.Color('#2a1a3a').convertSRGBToLinear(), roughness: 0.2, metalness: 0.3, envMap: R3D.envMap, envMapIntensity: 0.5 }));
+    const part = (geom, mat, y) => { const m = new THREE.Mesh(geom, mat); m.position.y = y; m.castShadow = m.receiveShadow = true; g.add(m); return m; };
+    if (!geo.altarC) geo.altarC = [new THREE.CylinderGeometry(1.2, 1.35, 0.2, 8), new THREE.CylinderGeometry(0.85, 0.95, 0.2, 8), new THREE.CylinderGeometry(0.34, 0.46, 0.75, 8), new THREE.CylinderGeometry(0.55, 0.4, 0.14, 8),
+      new THREE.TorusGeometry(1.24, 0.03, 6, 48).rotateX(Math.PI / 2), new THREE.TorusGeometry(0.9, 0.025, 6, 40).rotateX(Math.PI / 2), new THREE.TorusGeometry(0.32, 0.04, 8, 32).rotateX(Math.PI / 2)];
+    const [a, b, c, d, r1, r2, r3] = geo.altarC;
+    part(a, obs, 0.1); part(b, obs, 0.3); part(c, obs, 0.775); part(d, obs, 1.22);
+    const rings = [[r1, 0.21, '#ff2a4a'], [r2, 0.41, '#ff2a4a'], [r3, 1.3, '#ffb070']].map(([gm, y, col]) => { const m = new THREE.Mesh(gm, glowMat(col)); m.position.y = y; g.add(m); return m; });
+    const h = halo('#ff4a3a', 1.3); h.position.y = 1.45; g.add(h);
+    g.userData.castleAltar = rings;
+    return g;
+  }
 
   function floorTexture(sx, sy, sec, th) {
     const P = 4, N = S * P;
@@ -618,8 +704,8 @@
     const x = c.getContext('2d'), img = x.createImageData(N, N), d = img.data;
     const rgb = (h) => { const n = parseInt(h.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
     const f0 = rgb(th.floor[0]), f1 = rgb(th.floor[1]), road = rgb(th.road), water = rgb(th.waterColor || '#3d8fd6').map((v) => v * 0.6);
-    const grid = th.gen === 'grid', hub = th.gen === 'hub', city = th.gen === 'city';
-    const line = hub ? [123, 92, 255] : rgb(th.wallColor);
+    const grid = th.gen === 'grid', hub = th.gen === 'hub', city = th.gen === 'city', castle = th.gen === 'castle';
+    const line = hub ? [123, 92, 255] : castle ? [120, 50, 170] : rgb(th.wallColor), force = [170, 80, 24];
     let seed = NX.hash(sx, sy, 31);
     const rnd = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
     for (let ty = 0; ty < S; ty++) for (let tx = 0; tx < S; tx++) {
@@ -628,12 +714,13 @@
       if (t === T.ROAD || t === T.GATE || t === T.ALTAR) base = road;
       else if (t === T.WATER) base = water;
       else if (t === T.GRASS) base = base.map((v) => v * 0.85);
+      else if (t === T.FORCE) base = force;
       const tileNoise = (rnd() - 0.5) * 10;
       for (let py = 0; py < P; py++) for (let px = 0; px < P; px++) {
         const i = ((ty * P + py) * N + tx * P + px) * 4;
         const n = tileNoise * 0.7 + (rnd() - 0.5) * 6;
         let r = base[0] + n, g = base[1] + n, b = base[2] + n;
-        if ((grid || hub) && (px === 0 || py === 0)) { r = r * 0.6 + line[0] * 0.4; g = g * 0.6 + line[1] * 0.4; b = b * 0.6 + line[2] * 0.4; }
+        if ((grid || hub || (castle && t !== T.ROAD)) && (px === 0 || py === 0)) { r = r * 0.6 + line[0] * 0.4; g = g * 0.6 + line[1] * 0.4; b = b * 0.6 + line[2] * 0.4; }
         if (city && t === T.ROAD && (px === 0 || py === 0)) { r *= 0.85; g *= 0.85; b *= 0.85; }
         d[i] = r; d[i + 1] = g; d[i + 2] = b; d[i + 3] = 255;
       }
@@ -689,6 +776,8 @@
     }
     s.dirty = true;
   };
+  // Mark one built sector dirty so syncSectors() rebuilds it from W.sector() (e.g. the forcefield dropped).
+  R3D.refreshSector = (sx, sy) => { const s = sectors.get(sx + ',' + sy); if (s) s.dirty = true; };
 
   function syncSectors(budget) {
     const want = new Set(NX.Game.activeSectors());
@@ -716,11 +805,12 @@
   const objs = new Map();   // entity -> view
   let frameId = 0;
   const tints = ['#4a9cff', '#ff4f8b', '#ffd23f', '#5be0a6', '#b06aff', '#ff8a3a', '#18e0ff', '#e84a4a'];
-  const PK = new Set(['coin', 'heart', 'grenade', 'mushroom', 'extralife', 'star', 'masterball', 'relic', 'mount', 'pokeballs']);
+  const PK = new Set(['coin', 'heart', 'grenade', 'mushroom', 'extralife', 'star', 'masterball', 'relic', 'mount', 'pokeballs', 'egg']);
   function modelKey(e) {
     switch (e.kind) {
       case 'enemy': case 'pet': return e.type;
       case 'npc': return e.role === 'gunter' ? 'gunter:' + tints[(e.seed || e.id) % tints.length] : e.look;
+      case 'site': return e.role === 'cabinet' ? 'cabinet' : 'gatedoor:' + NX.CAMPAIGN.acts[e.act].color;
       case 'chest': return 'chest';
       case 'pickup':
         if (PK.has(e.item)) return 'pk_' + e.item;
@@ -743,6 +833,8 @@
     const v = instance(key);
     if (!v) return null;
     if (e.kind === 'pickup' && (e.item === 'relic' || e.item === 'key' || e.item === 'mount' || e.item === 'star')) { const h = halo(e.item === 'key' ? NX.KEYS[e.key].color : '#ffd23f', 1.6); h.position.y = 0.45; v.body.add(h); }
+    if (e.kind === 'pickup' && e.item === 'egg') { const h = halo('#ffe8a0', 2.6); h.position.y = 0.55; v.body.add(h); const g = halo('#c070ff', 1.2); g.position.y = 0.55; v.body.add(g); }
+    if (e.kind === 'site') siteView(v, e);
     if (e.kind === 'pet') { const ring = new THREE.Mesh(geo.petRing || (geo.petRing = new THREE.RingGeometry(0.42, 0.5, 32).rotateX(-Math.PI / 2)), glowMat('#5bff9a', 0.7)); ring.position.y = 0.03; v.root.add(ring); }
     if (e.def && e.def.boss) { const ring = new THREE.Mesh(geo.bossRing || (geo.bossRing = new THREE.RingGeometry(0.9, 1.0, 48).rotateX(-Math.PI / 2)), glowMat(e.def.color || '#ff3030', 0.6)); ring.position.y = 0.03; v.root.add(ring); v.bossRing = ring; }
     if (e.tier === 'gold') { const h = halo('#ffd23f', 2.2); h.position.y = 0.4; v.root.add(h); }
@@ -759,7 +851,48 @@
 
   function entityScale(e) {
     if (e.def && e.def.boss) return (e.r / 14) * 0.85;
+    if (e.def && e.def.generator) return 1.15;
+    if (e.kind === 'pickup' && e.item === 'egg') return 1.4;
     return 1;
+  }
+
+  // ---------- Campaign sites (arcade cabinets, gate portals); states are derived each frame ----------
+  const dimMat = () => sharedMat('siteDim', () => new THREE.MeshStandardMaterial({ vertexColors: true, color: '#1e1c28', roughness: 0.3 }));
+  const gateMat = (col, open, kind) => sharedMat(`gate:${kind}:${col}:${open}`, () => (kind === 'ring'
+    ? new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.28, metalness: 0.85, envMap: R3D.envMap, envMapIntensity: 0.6, emissive: col, emissiveIntensity: open ? 0.45 : 0 })
+    : new THREE.MeshStandardMaterial({ vertexColors: true, color: open ? '#ffffff' : '#6a6a78', roughness: 0.15, emissive: col, emissiveIntensity: open ? 1.0 : 0.05, transparent: true, opacity: open ? 0.92 : 0.75 })));
+  function siteView(v, e) {
+    const col = NX.CAMPAIGN.acts[e.act].color, at = (o, x, y, z) => { o.position.set(x, y, z); v.body.add(o); return o; };
+    if (e.role === 'cabinet') {
+      v.glow = at(halo(col, 1.2), 0.34, 1.74, 0);
+      v.scrHalo = at(halo('#6a9aff', 0.9), 0.3, 1.33, 0);
+      v.beacon = at(new THREE.Mesh(geo.ico || (geo.ico = new THREE.IcosahedronGeometry(0.35, 1)), glowMat(col)), 0, 2.6, 0);
+      v.beacon.scale.setScalar(0.5); v.beacon.add(halo(col, 3.4));
+    } else v.halo = at(halo(col, 3), 0.15, 1.75, 0);
+  }
+  function syncSite(v, e, t) {
+    const G = NX.Game, r = v.rig;
+    if (e.role === 'cabinet') {
+      const id = `${e.act}_clue_${e.index}`, st = G.isDone(id) ? 'done' : G.stageId() === id ? 'live' : 'dark';
+      if (v.st !== st) {
+        v.st = st;
+        for (const m of [r.screen, r.marquee]) if (m) m.material = m.userData.baseMat = st === 'dark' ? dimMat() : MAT.glowSoft;
+        v.glow.visible = v.scrHalo.visible = st !== 'dark'; v.beacon.visible = st === 'live';
+        v.scrHalo.material = haloMat(st === 'done' ? '#5bff9a' : '#6a9aff');
+      }
+      if (st === 'live') { v.beacon.rotation.set(t * 0.7, t * 2, 0); v.beacon.position.y = 2.6 + Math.sin(t * 2.5) * 0.12; v.glow.scale.setScalar(1.2 + Math.sin(t * 5) * 0.3); }
+      else if (st === 'done') v.scrHalo.scale.setScalar(0.9 + Math.sin(t * 3) * 0.08);
+    } else {
+      const open = G.isDone(e.act + '_gate'), col = NX.CAMPAIGN.acts[e.act].color;
+      if (v.open !== open) {
+        v.open = open;
+        if (r.ring) r.ring.material = r.ring.userData.baseMat = gateMat(col, open, 'ring');
+        if (r.membrane) r.membrane.material = r.membrane.userData.baseMat = gateMat(col, open, 'membrane');
+        if (r.chevrons) r.chevrons.material = r.chevrons.userData.baseMat = open ? MAT.glowSoft : dimMat();
+        if (r.swirlMat) r.swirlMat.opacity = open ? 0.8 : 0.16;
+      }
+      v.halo.scale.setScalar((open ? 4.6 : 2.4) + Math.sin(t * 2) * 0.25);
+    }
   }
 
   function animate(v, e, dt, t, moving, walk) {
@@ -797,6 +930,13 @@
       case 'sway': if (r.head) r.head.rotation.z = Math.sin(t * 2.5) * 0.18; if (r.body && spec.height > 2) r.body.rotation.z = Math.sin(t * 0.8) * 0.12; break;
       case 'spin': v.body.rotation.y = t * 2 + id; v.body.position.y = 0.1 + Math.sin(t * 3 + id) * 0.06; break;
       case 'chest': if (r.lid) r.lid.rotation.z += ((e.open ? 1.9 : 0) - r.lid.rotation.z) * Math.min(1, dt * 6); break;
+      case 'gate': if (r.swirl) r.swirl.rotation.x = -t * 0.9; break;
+      case 'pylon':
+        if (r.ringA) r.ringA.rotation.y = t * 1.4 + id;
+        if (r.ringB) r.ringB.rotation.y = -t * 1.1;
+        if (r.ringC) r.ringC.rotation.set(Math.sin(t * 0.9) * 0.3, t * 2.3, 0);
+        if (r.orb) r.orb.position.y = r.orb.userData.pivot[1] + Math.sin(t * 2.2 + id) * 0.05;
+        break;
     }
     if (r.tail) r.tail.rotation.y = Math.sin(t * 3 + id) * 0.3;
     if (r.flame) r.flame.scale.setScalar(0.85 + Math.random() * 0.3);
@@ -826,7 +966,8 @@
       const dx = x - (v.px ?? x), dz = z - (v.pz ?? z);
       const moving = Math.hypot(dx, dz) > 0.002;
       v.px = x; v.pz = z;
-      if (moving) v.heading = Math.atan2(dz, dx);
+      if (e.kind === 'site') v.heading = Math.PI / 2;   // face south, toward the approach road and the camera
+      else if (moving) v.heading = Math.atan2(dz, dx);
       else if ((e.kind === 'enemy' && e.def && (e.def.ai === 'turret' || e.def.ai === 'shooter' || e.def.boss)) || e.kind === 'npc') v.heading = Math.atan2(G.P.y / TS - z, G.P.x / TS - x);
       v.root.position.set(x, 0, z);
       if (v.h == null) v.h = v.heading || 0;
@@ -840,6 +981,7 @@
       else if (e.scared > 0 && e.def && e.def.tag === 'ghost') mat = e.scared < 2 && Math.floor(t * 6) % 2 ? MAT.scaredBlink : MAT.scared;
       if (mat !== v.mat) { setMaterial(v, mat); v.mat = mat; }
       if (v.bossRing) v.bossRing.scale.setScalar(1 + Math.sin(t * 4) * 0.05);
+      if (e.kind === 'site' && !v.placeholder) syncSite(v, e, t);
     }
     for (const [e, v] of objs) if (v.seen !== frameId) { scene.remove(v.root); objs.delete(e); }
   }
@@ -1092,13 +1234,16 @@
   function syncLook(dt) {
     const P = NX.Game.P, sx = Math.floor(P.x / TS / S), sy = Math.floor(P.y / TS / S);
     const L = LOOK[W.inBounds(sx, sy) ? W.themeOf(sx, sy) : 'hub'] || LOOK.hub;
-    if (!look) look = { sky: new THREE.Color(L.sky), hs: new THREE.Color(L.hemi[0]), hg: new THREE.Color(L.hemi[1]), sun: new THREE.Color(L.sun[0]), si: L.sun[1], ex: L.exposure };
+    const fl = L.fill || FILL, sunH = L.sunH || 26;
+    if (!look) look = { sky: new THREE.Color(L.sky), fog: new THREE.Color(L.fog || L.sky), hs: new THREE.Color(L.hemi[0]), hg: new THREE.Color(L.hemi[1]), sun: new THREE.Color(L.sun[0]), si: L.sun[1], ex: L.exposure, fill: new THREE.Color(fl[0]), fi: fl[1], sh: sunH };
     const k = Math.min(1, dt * 1.5);
-    look.sky.lerp(tmp().set(L.sky), k); look.hs.lerp(tmp().set(L.hemi[0]), k); look.hg.lerp(tmp().set(L.hemi[1]), k); look.sun.lerp(tmp().set(L.sun[0]), k);
+    look.sky.lerp(tmp().set(L.sky), k); look.fog.lerp(tmp().set(L.fog || L.sky), k); look.hs.lerp(tmp().set(L.hemi[0]), k); look.hg.lerp(tmp().set(L.hemi[1]), k); look.sun.lerp(tmp().set(L.sun[0]), k);
+    look.fill.lerp(tmp().set(fl[0]), k); look.fi += (fl[1] - look.fi) * k; look.sh += (sunH - look.sh) * k;
     look.si += (L.sun[1] - look.si) * k; look.ex += (L.exposure - look.ex) * k;
-    scene.background.copy(look.sky); scene.fog.color.copy(look.sky);
+    scene.background.copy(look.sky); scene.fog.color.copy(look.fog);
     hemi.color.copy(look.hs); hemi.groundColor.copy(look.hg); hemi.intensity = 0.38 + look.si * 0.1;
     sun.color.copy(look.sun); sun.intensity = look.si;
+    fill.color.copy(look.fill); fill.intensity = look.fi;
     renderer.toneMappingExposure = look.ex * 0.92;
   }
 
@@ -1115,7 +1260,7 @@
     camera.position.x += (wx - camera.position.x) * k; camera.position.y += (wy - camera.position.y) * k; camera.position.z += (wz - camera.position.z) * k;
     const sh = G.cam.shake ? (Math.random() - 0.5) * G.cam.shake * 0.02 : 0;
     camera.lookAt(camera.position.x + sh, 0.6 + sh, camera.position.z - Math.cos(pitch) * dist);
-    sun.position.set(tx + 12, 26, tz + 8); sun.target.position.set(tx, 0, tz);
+    sun.position.set(tx + 12, look ? look.sh : 26, tz + 8); sun.target.position.set(tx, 0, tz);
     fill.position.set(tx - 10, 12, tz - 12);
     scene.fog.near = 26 * camZoom; scene.fog.far = 64 * camZoom;
   }
@@ -1134,9 +1279,15 @@
       for (const a of s.anim) {
         if (a.userData.gate) for (const c of a.children) if (c.userData.ring != null) { c.rotation.y = t * (0.6 + c.userData.ring * 0.4); c.rotation.x = t * (0.4 + c.userData.ring * 0.3); }
         if (a.userData.egg) { a.userData.egg.body.rotation.y = t * 0.6; a.userData.egg.body.position.y = 0.55 + Math.sin(t * 2) * 0.06; }
+        if (a.userData.castleAltar) { const [r1, r2, r3] = a.userData.castleAltar, p = 1 + Math.sin(t * 1.6) * 0.025; r1.scale.set(p, 1, p); r2.scale.set(2 - p, 1, 2 - p); r3.position.y = 1.3 + Math.sin(t * 2) * 0.04; }
       }
       s.blinkOff = Math.floor(t * 4) % 2 === 1;
       for (const c of s.group.children) if (c.userData.spin) { c.rotation.y = t; c.rotation.x = t * 0.6; c.position.y = 1.6 + Math.sin(t * 2 + c.position.x) * 0.1; }
+    }
+    if (forceMats) {
+      const p = Math.sin(t * 2.4);
+      forceMats.wall.opacity = 0.42 + p * 0.12; forceMats.lid.opacity = 0.07 + p * 0.03;
+      forceMats.flow.map.offset.y = -t * 0.35;
     }
   }
 
