@@ -1,0 +1,19 @@
+{
+  "name": "eclipse-vanguard",
+  "version": "1.0.0",
+  "description": "Original three.js space-combat game",
+  "scripts": {
+    "build": "esbuild src/main.js --bundle --minify --format=iife --outfile=game.js",
+    "dev": "esbuild src/main.js --bundle --format=iife --outfile=game.js --watch --servedir=."
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "three": "^0.187.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
+  },
+  "private": true
+}
